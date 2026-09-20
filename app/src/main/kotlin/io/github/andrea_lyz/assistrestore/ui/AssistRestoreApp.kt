@@ -656,7 +656,7 @@ private fun EntriesScreen(
     onSelectTab: (Int) -> Unit,
 ) {
     AppScreen(
-        title = "ColorOS AssistRestore",
+        title = "Oplus-Assistant",
         snackbarHost = snackbarHost,
         bottomBar = { AppBottomBar(selectedTab, onSelectTab) },
     ) { modifier ->
@@ -1222,7 +1222,7 @@ private fun AdvancedScreen(
 
             SectionCard {
                 ListRow(
-                    title = "Skip screen-recognition pre-binding",
+                    title = "Skip pre-binding",
                     subtitle = "Stops waking the Breeno screen-recognition service for nothing when the gesture bar is long-pressed",
                     icon = Icons.Rounded.Block,
                     trailing = { Toggle(skipOcrPreload, onSkipOcrPreloadChange) },

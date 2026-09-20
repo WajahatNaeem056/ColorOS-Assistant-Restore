@@ -113,7 +113,7 @@ import androidx.lifecycle.LifecycleEventObserver
 /* Preview data                                                                                   */
 /* --------------------------------------------------------------------------------------------- */
 
-private val ENTRY_NAMES = listOf("长按电源键", "长按手势条", "底角内滑")
+private val ENTRY_NAMES = listOf("Long-press power button", "Long-press gesture bar", "Bottom-corner swipe")
 
 /** Entry identifiers as stored in the configuration, in the same order as [ENTRY_NAMES]. */
 /** The OEM assistant: it declares no voice interaction service, so it is started as an activity. */
@@ -283,7 +283,7 @@ fun AssistRestoreApp() {
     val rebootHint: () -> Unit = {
         Toast.makeText(
             context,
-            "已保存：底角那项要重启手机后桌面才会重新判断，之前可能仍保留手势动画",
+            "Saved. The corner gesture needs a reboot before the launcher re-checks it; the old gesture animation may remain until then",
             Toast.LENGTH_LONG,
         ).show()
     }
@@ -294,9 +294,9 @@ fun AssistRestoreApp() {
         Toast.makeText(
             context,
             if (hidden) {
-                "已隐藏桌面图标：仍可从 LSPosed 模块页或系统设置的应用详情打开本应用"
+                "Launcher icon hidden. You can still open this app from the LSPosed module page or the system app info page"
             } else {
-                "已重新显示桌面图标"
+                "Launcher icon shown again"
             },
             Toast.LENGTH_LONG,
         ).show()
@@ -344,7 +344,7 @@ fun AssistRestoreApp() {
             runCatching { context.startActivity(intent) }.isSuccess
         }
         if (!opened) {
-            Toast.makeText(context, "系统里没有可打开的助理设置页", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "No assistant settings page available on this system", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -480,7 +480,7 @@ private fun AppTopBar(
         ) {
             if (onBack != null) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Rounded.ArrowBack, contentDescription = "返回")
+                    Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
                 }
             } else {
                 Spacer(Modifier.width(12.dp))
@@ -504,8 +504,8 @@ private fun AppTopBar(
 private fun AppBottomBar(selected: Int, onSelect: (Int) -> Unit) {
     NavigationBar {
         listOf(
-            Triple("入口", Icons.Rounded.TouchApp, 0),
-            Triple("高级", Icons.Rounded.Settings, 1),
+            Triple("Entries", Icons.Rounded.TouchApp, 0),
+            Triple("Advanced", Icons.Rounded.Settings, 1),
         ).forEach { (label, icon, index) ->
             NavigationBarItem(
                 selected = selected == index,
@@ -656,7 +656,7 @@ private fun EntriesScreen(
     onSelectTab: (Int) -> Unit,
 ) {
     AppScreen(
-        title = "ColorOS 唤语",
+        title = "ColorOS AssistRestore",
         snackbarHost = snackbarHost,
         bottomBar = { AppBottomBar(selectedTab, onSelectTab) },
     ) { modifier ->
@@ -680,7 +680,7 @@ private fun EntriesScreen(
             }
 
             Spacer(Modifier.height(24.dp))
-            Text("唤醒入口", style = MaterialTheme.typography.titleMedium)
+            Text("Wake-up entries", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
 
             SectionCard {
@@ -699,8 +699,8 @@ private fun EntriesScreen(
             Spacer(Modifier.height(16.dp))
             SectionCard {
                 ListRow(
-                    title = "模块接管全部入口",
-                    subtitle = "关闭后三个入口都回到 ColorOS 原始行为",
+                    title = "Module controls all entries",
+                    subtitle = "When off, all three entries go back to stock ColorOS behavior",
                     icon = Icons.Rounded.Tune,
                     trailing = { Toggle(masterEnabled, onMasterChange) },
                 )
@@ -754,7 +754,7 @@ private fun ModuleStatusCard(
                     .padding(20.dp),
             ) {
                 Text(
-                    text = if (active) "模块已生效" else "模块未生效",
+                    text = if (active) "Module active" else "Module not active",
                     style = MaterialTheme.typography.titleMedium,
                     color = contentColor,
                     maxLines = 2,
@@ -762,7 +762,7 @@ private fun ModuleStatusCard(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = if (active) "4 个作用域已挂载" else "未连接 Xposed 服务",
+                    text = if (active) "4 scopes attached" else "Xposed service not connected",
                     style = MaterialTheme.typography.bodySmall,
                     color = contentColor.copy(alpha = 0.8f),
                 )
@@ -824,7 +824,7 @@ private fun AssistantCard(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "当前默认助理 · 点按打开设置",
+                    text = "Current default assistant · tap to open settings",
                     style = MaterialTheme.typography.bodySmall,
                     color = contentColor.copy(alpha = 0.8f),
                 )
@@ -835,15 +835,15 @@ private fun AssistantCard(
 
 private fun describeChoice(choice: TargetChoice, snapshot: AssistantSnapshot): String =
     when (choice) {
-        TargetChoice.FollowDefault -> "当前：跟随系统默认助理 · ${snapshot.defaultLabel}"
-        TargetChoice.CircleToSearch -> "当前：一圈即搜"
-        is TargetChoice.App -> "当前：" + (
+        TargetChoice.FollowDefault -> "Current: follow system default assistant · ${snapshot.defaultLabel}"
+        TargetChoice.CircleToSearch -> "Current: Circle to Search"
+        is TargetChoice.App -> "Current: " + (
             snapshot.apps.firstOrNull { it.packageName == choice.packageName }?.label
                 ?: choice.packageName
             )
-        is TargetChoice.Custom -> "当前：自定义 · " + choice.packageName
-        TargetChoice.Oem -> "当前：小布识屏（ColorOS 原生）"
-        TargetChoice.None -> "当前：不唤醒助理"
+        is TargetChoice.Custom -> "Current: custom · " + choice.packageName
+        TargetChoice.Oem -> "Current: Breeno screen recognition (stock ColorOS)"
+        TargetChoice.None -> "Current: no assistant"
     }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -864,7 +864,7 @@ private fun TargetScreen(
     cornerHintVisible: Boolean,
     snackbarHost: SnackbarHostState,
 ) {
-    AppScreen(title = "唤醒目标", snackbarHost = snackbarHost, onBack = onBack) { modifier ->
+    AppScreen(title = "Wake-up target", snackbarHost = snackbarHost, onBack = onBack) { modifier ->
         Column(modifier.padding(horizontal = 16.dp)) {
             Spacer(Modifier.height(8.dp))
 
@@ -886,13 +886,13 @@ private fun TargetScreen(
             }
 
             Spacer(Modifier.height(16.dp))
-            Text("选择这个入口要唤醒谁", style = MaterialTheme.typography.titleMedium)
+            Text("Choose what this entry launches", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
 
             SectionCard {
                 ListRow(
-                    title = "跟随系统默认助理",
-                    subtitle = "当前系统默认：${snapshot.defaultLabel}",
+                    title = "Follow system default assistant",
+                    subtitle = "Current system default: ${snapshot.defaultLabel}",
                     icon = Icons.Rounded.SettingsVoice,
                     trailing = {
                         Toggle(choice is TargetChoice.FollowDefault) {
@@ -902,8 +902,8 @@ private fun TargetScreen(
                 )
                 RowDivider()
                 ListRow(
-                    title = "一圈即搜",
-                    subtitle = "走系统 CTS 服务，不跟随默认助理设置",
+                    title = "Circle to Search",
+                    subtitle = "Uses the system CTS service, ignores the default assistant setting",
                     icon = Icons.Rounded.Search,
                     trailing = {
                         Toggle(choice is TargetChoice.CircleToSearch) {
@@ -914,8 +914,8 @@ private fun TargetScreen(
                 if (oemOptionVisible) {
                     RowDivider()
                     ListRow(
-                        title = "小布识屏",
-                        subtitle = "不接管：长按手势条仍由 ColorOS 自己处理",
+                        title = "Breeno screen recognition",
+                        subtitle = "No takeover: long-pressing the gesture bar stays with ColorOS",
                         icon = Icons.Rounded.Tune,
                         trailing = {
                             Toggle(choice is TargetChoice.Oem) {
@@ -931,8 +931,8 @@ private fun TargetScreen(
             SectionCard {
                 if (breenoOptionVisible) {
                     ListRow(
-                        title = "小布助手",
-                        subtitle = "只有 ACTION_ASSIST 活动，直接唤起小布助手本体",
+                        title = "Breeno assistant",
+                        subtitle = "ACTION_ASSIST activity only; launches the Breeno assistant app itself",
                         icon = Icons.Rounded.SettingsVoice,
                         trailing = {
                             Toggle(
@@ -950,8 +950,8 @@ private fun TargetScreen(
                     RowDivider()
                 }
                 ListRow(
-                    title = "其他应用…",
-                    subtitle = "手动填包名或服务组件，用该应用自己的助理入口",
+                    title = "Other app…",
+                    subtitle = "Enter a package name or service component manually and use that app's own assistant entry",
                     icon = Icons.Rounded.Add,
                     trailing = { Chevron() },
                     onClick = onCustom,
@@ -959,14 +959,14 @@ private fun TargetScreen(
             }
             Spacer(Modifier.height(16.dp))
             Text(
-                text = "三个入口各存一份目标；全部关掉 = 这个入口不唤醒任何助理（ColorOS 原生调用也一并关掉）。",
+                text = "Each of the three entries stores its own target. Turning everything off means this entry launches no assistant (the stock ColorOS call is disabled too).",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (cornerHintVisible) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "底角这项改动要重启手机后桌面才会重新判断，重启前可能仍保留手势动画。",
+                    text = "A corner-gesture change needs a reboot before the launcher re-checks it; the old gesture animation may remain until then.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1005,22 +1005,22 @@ private fun CustomTargetScreen(
         AssistConfig.METHOD_ASSIST,
         AssistConfig.METHOD_INTENT,
     )
-    val methodLabels = listOf("自动", "ACTION_ASSIST", "显式 Intent")
+    val methodLabels = listOf("Auto", "ACTION_ASSIST", "Explicit Intent")
     var methodIndex by remember {
         mutableIntStateOf(methods.indexOf(store.targetMethod(entry)).coerceAtLeast(0))
     }
     var pasted by remember { mutableStateOf("") }
     var menuOpen by remember { mutableStateOf(false) }
 
-    AppScreen(title = "自定义目标", snackbarHost = snackbarHost, onBack = onBack) { modifier ->
+    AppScreen(title = "Custom target", snackbarHost = snackbarHost, onBack = onBack) { modifier ->
         Column(modifier.padding(horizontal = 16.dp)) {
             Spacer(Modifier.height(8.dp))
 
             OutlinedTextField(
                 value = pasted,
                 onValueChange = { pasted = it },
-                label = { Text("粘贴 Intent JSON") },
-                supportingText = { Text("把应用信息里那段 JSON 粘进来，点下面按钮自动填") },
+                label = { Text("Paste Intent JSON") },
+                supportingText = { Text("Paste the JSON from the app info here, then tap the button below to fill in the fields") },
                 leadingIcon = { Icon(Icons.Rounded.DataObject, contentDescription = null) },
                 minLines = 3,
                 modifier = Modifier.fillMaxWidth(),
@@ -1030,7 +1030,7 @@ private fun CustomTargetScreen(
                 onClick = {
                     val parsed = parseIntentJson(pasted)
                     if (parsed == null) {
-                        notify("没认出 JSON，检查一下格式")
+                        notify("JSON not recognized, please check the format")
                     } else {
                         if (parsed.packageName.isNotEmpty()) {
                             packageName = parsed.packageName
@@ -1053,7 +1053,7 @@ private fun CustomTargetScreen(
                             builder.append(parsed.extra)
                         }
                         intentArgs = builder.toString()
-                        notify("已识别并填入，确认后按「保存目标」")
+                        notify("Recognized and filled in. Tap \"Save target\" to confirm")
                     }
                 },
                 modifier = Modifier
@@ -1062,15 +1062,15 @@ private fun CustomTargetScreen(
             ) {
                 Icon(Icons.Rounded.Check, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("识别并填入")
+                Text("Recognize and fill in")
             }
             Spacer(Modifier.height(16.dp))
 
             OutlinedTextField(
                 value = packageName,
                 onValueChange = { packageName = it },
-                label = { Text("包名") },
-                supportingText = { Text("例如 com.heytap.speechassist") },
+                label = { Text("Package name") },
+                supportingText = { Text("e.g. com.heytap.speechassist") },
                 leadingIcon = { Icon(Icons.Rounded.Apps, contentDescription = null) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -1081,7 +1081,7 @@ private fun CustomTargetScreen(
             OutlinedTextField(
                 value = component,
                 onValueChange = { component = it },
-                label = { Text("服务组件") },
+                label = { Text("Service component") },
                 supportingText = { Text("com.heytap.speechassist/.service.SpeechAssistService") },
                 leadingIcon = { Icon(Icons.Rounded.Widgets, contentDescription = null) },
                 singleLine = true,
@@ -1137,7 +1137,7 @@ private fun CustomTargetScreen(
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "自动：优先该应用声明的助理活动；显式 Intent：按下面的组件与参数启动",
+                    text = "Auto: prefers the assistant activity the app declares. Explicit Intent: launches using the component and arguments below",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp),
@@ -1149,7 +1149,7 @@ private fun CustomTargetScreen(
             OutlinedTextField(
                 value = intentArgs,
                 onValueChange = { intentArgs = it },
-                label = { Text("Intent 参数") },
+                label = { Text("Intent arguments") },
                 supportingText = {
                     Text("action=heytap.intent.action.ACTIVATE_SPEECH_ASSIST · start_type=91")
                 },
@@ -1170,9 +1170,9 @@ private fun CustomTargetScreen(
                         method = methods[methodIndex],
                         args = intentArgs.trim(),
                     )
-                    notify("已保存：该入口改为自定义目标")
+                    notify("Saved. This entry now uses a custom target")
                     notify(
-                        "已保存：" + store.mode(entry) +
+                        "Saved: " + store.mode(entry) +
                             " · " + store.targetPackage(entry) +
                             " · " + store.targetComponent(entry) +
                             " · " + store.targetMethod(entry)
@@ -1185,7 +1185,7 @@ private fun CustomTargetScreen(
             ) {
                 Icon(Icons.Rounded.Check, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("保存目标")
+                Text("Save target")
             }
 
 
@@ -1214,7 +1214,7 @@ private fun AdvancedScreen(
     onSelectTab: (Int) -> Unit,
 ) {
     AppScreen(
-        title = "高级",
+        title = "Advanced",
         bottomBar = { AppBottomBar(selectedTab, onSelectTab) },
     ) { modifier ->
         Column(modifier.padding(horizontal = 16.dp)) {
@@ -1222,36 +1222,36 @@ private fun AdvancedScreen(
 
             SectionCard {
                 ListRow(
-                    title = "跳过识屏服务预绑定",
-                    subtitle = "长按手势条时不再白唤醒一次小布识屏服务",
+                    title = "Skip screen-recognition pre-binding",
+                    subtitle = "Stops waking the Breeno screen-recognition service for nothing when the gesture bar is long-pressed",
                     icon = Icons.Rounded.Block,
                     trailing = { Toggle(skipOcrPreload, onSkipOcrPreloadChange) },
                 )
                 RowDivider()
                 ListRow(
-                    title = "解除页面级手势限制",
-                    subtitle = "设置这类页面也能用底角内滑",
+                    title = "Remove page-level gesture restriction",
+                    subtitle = "Lets the bottom-corner swipe work on pages like Settings too",
                     icon = Icons.Rounded.LockOpen,
                     trailing = { Toggle(unblockPageFlags, onUnblockPageFlagsChange) },
                 )
                 RowDivider()
                 ListRow(
-                    title = "Google 应用机型伪装",
-                    subtitle = "伪装为 SM-S928B，解锁一圈即搜",
+                    title = "Google app device spoof",
+                    subtitle = "Spoofs SM-S928B to unlock Circle to Search",
                     icon = Icons.Rounded.Smartphone,
                     trailing = { Toggle(fakeGoogleBuild, onFakeGoogleBuildChange) },
                 )
                 RowDivider()
                 ListRow(
-                    title = "隐藏手势条时保持长按",
-                    subtitle = "手势条隐藏后，底部原位置的长按仍能召唤助理",
+                    title = "Keep long-press when gesture bar is hidden",
+                    subtitle = "With the gesture bar hidden, a long-press at its original spot still summons the assistant",
                     icon = Icons.Rounded.TouchApp,
                     trailing = { Toggle(handleWhenBarHidden, onHandleWhenBarHiddenChange) },
                 )
                 RowDivider()
                 ListRow(
-                    title = "隐藏桌面图标",
-                    subtitle = "隐藏后可从 LSPosed 模块页或系统设置的应用详情打开",
+                    title = "Hide launcher icon",
+                    subtitle = "When hidden, open it from the LSPosed module page or the system app info page",
                     icon = Icons.Rounded.VisibilityOff,
                     trailing = { Toggle(hideLauncherIcon, onHideLauncherIconChange) },
                 )

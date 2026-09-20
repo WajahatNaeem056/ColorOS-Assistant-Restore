@@ -171,7 +171,16 @@ final class CtsHooks {
                 continue;
             }
             Class<?>[] parameterTypes = candidate.getParameterTypes();
-            if (parameterTypes.length != 1 || parameterTypes[0] != int.class) {
+            // Android 16 and older: startContextualSearch(int entrypoint)
+            // Android 17 / ColorOS 17: startContextualSearch(int entrypoint, ContextualSearchConfig)
+            // The entrypoint is always the first argument, so both shapes are hooked the same way.
+            // startContextualSearchForApp(ContextualSearchConfig) has a different name and is
+            // intentionally not matched here.
+            boolean legacyShape = parameterTypes.length == 1 && parameterTypes[0] == int.class;
+            boolean configShape = parameterTypes.length == 2 && parameterTypes[0] == int.class
+                    && "android.app.contextualsearch.ContextualSearchConfig"
+                            .equals(parameterTypes[1].getName());
+            if (!legacyShape && !configShape) {
                 continue;
             }
             candidate.setAccessible(true);

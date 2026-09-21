@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -502,17 +504,60 @@ private fun AppTopBar(
 
 @Composable
 private fun AppBottomBar(selected: Int, onSelect: (Int) -> Unit) {
-    NavigationBar {
-        listOf(
-            Triple("Entries", Icons.Rounded.TouchApp, 0),
-            Triple("Advanced", Icons.Rounded.Settings, 1),
-        ).forEach { (label, icon, index) ->
-            NavigationBarItem(
-                selected = selected == index,
-                onClick = { onSelect(index) },
-                icon = { Icon(icon, contentDescription = label) },
-                label = { Text(label) },
-            )
+    val items = listOf(
+        Triple("Entries", Icons.Rounded.TouchApp, 0),
+        Triple("Advanced", Icons.Rounded.Settings, 1),
+    )
+    // Floating pill: the bar area stays transparent and only the capsule is drawn.
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(start = 24.dp, end = 24.dp, top = 6.dp, bottom = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            shadowElevation = 10.dp,
+            border = BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            ),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                items.forEach { (label, icon, index) ->
+                    val isSelected = selected == index
+                    val tint = if (isSelected) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    }
+                    Column(
+                        modifier = Modifier
+                            .width(92.dp)
+                            .clip(CircleShape)
+                            .clickable { onSelect(index) }
+                            .padding(vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            icon,
+                            contentDescription = label,
+                            modifier = Modifier.size(26.dp),
+                            tint = tint,
+                        )
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = tint,
+                        )
+                    }
+                }
+            }
         }
     }
 }

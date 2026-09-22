@@ -2,7 +2,7 @@
 
 
 [![libxposed API](https://img.shields.io/badge/libxposed-API%20102-brightgreen)](https://github.com/libxposed/api)
-[![Platform](https://img.shields.io/badge/ColorOS-16%20CN-1a73e8)](docs/technical-notes.zh.md)
+[![Platform](https://img.shields.io/badge/ColorOS-17%20CN-1a73e8)](docs/technical-notes.zh.md)
 [![Root](https://img.shields.io/badge/Root-KernelSU%20%7C%20Magisk-orange)](#requirements)
 
 Restores AOSP digital-assistant behaviour on China-region ColorOS builds.

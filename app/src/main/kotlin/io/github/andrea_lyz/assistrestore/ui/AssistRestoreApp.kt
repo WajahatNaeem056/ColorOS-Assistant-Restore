@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apps
@@ -60,6 +61,10 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material.icons.rounded.Swipe
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -456,9 +461,11 @@ private fun AppScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { insets ->
+        // Only the top inset is applied here; the floating pill is transparent outside its
+        // capsule, so content scrolls underneath it instead of stopping above it.
         content(
             Modifier
-                .padding(insets)
+                .padding(top = insets.calculateTopPadding())
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         )
@@ -502,11 +509,18 @@ private fun AppTopBar(
     }
 }
 
+private data class BottomBarItem(
+    val label: String,
+    val filledIcon: androidx.compose.ui.graphics.vector.ImageVector,
+    val outlinedIcon: androidx.compose.ui.graphics.vector.ImageVector,
+    val index: Int,
+)
+
 @Composable
 private fun AppBottomBar(selected: Int, onSelect: (Int) -> Unit) {
     val items = listOf(
-        Triple("Entries", Icons.Rounded.TouchApp, 0),
-        Triple("Advanced", Icons.Rounded.Settings, 1),
+        BottomBarItem("Entries", Icons.Filled.TouchApp, Icons.Outlined.TouchApp, 0),
+        BottomBarItem("Advanced", Icons.Filled.Settings, Icons.Outlined.Settings, 1),
     )
     // Floating pill: the bar area stays transparent and only the capsule is drawn.
     Box(
@@ -526,33 +540,37 @@ private fun AppBottomBar(selected: Int, onSelect: (Int) -> Unit) {
             ),
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                items.forEach { (label, icon, index) ->
-                    val isSelected = selected == index
+                items.forEach { item ->
+                    val isSelected = selected == item.index
                     val tint = if (isSelected) {
                         MaterialTheme.colorScheme.onSurface
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     }
+                    val interactionSource = remember { MutableInteractionSource() }
                     Column(
                         modifier = Modifier
-                            .width(92.dp)
+                            .width(78.dp)
                             .clip(CircleShape)
-                            .clickable { onSelect(index) }
-                            .padding(vertical = 6.dp),
+                            .clickable(
+                                interactionSource = interactionSource,
+                                indication = null,
+                            ) { onSelect(item.index) }
+                            .padding(vertical = 4.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Icon(
-                            icon,
-                            contentDescription = label,
-                            modifier = Modifier.size(26.dp),
+                            if (isSelected) item.filledIcon else item.outlinedIcon,
+                            contentDescription = item.label,
+                            modifier = Modifier.size(22.dp),
                             tint = tint,
                         )
                         Text(
-                            label,
-                            style = MaterialTheme.typography.labelMedium,
+                            item.label,
+                            style = MaterialTheme.typography.labelSmall,
                             color = tint,
                         )
                     }
@@ -752,6 +770,8 @@ private fun EntriesScreen(
             }
 
             Spacer(Modifier.height(24.dp))
+            // Extra clearance so the last card is not hidden behind the floating pill.
+            Spacer(Modifier.height(72.dp))
         }
     }
 }

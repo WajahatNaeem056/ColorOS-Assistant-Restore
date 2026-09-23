@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AssistRestore"
+rootProject.name = "OplusAssistant"
 
 include(":app")
 include(":libxposed-api")

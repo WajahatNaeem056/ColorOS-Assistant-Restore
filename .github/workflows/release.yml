@@ -30,7 +30,7 @@ concurrency:
 
 env:
   # Metadata repository the Xposed module manager reads.
-  LSP_REPOSITORY: Xposed-Modules-Repo/io.github.andrea_lyz.assistrestore
+  LSP_REPOSITORY: Xposed-Modules-Repo/io.github.wajahatnaeem056.oplusassistant
 
 jobs:
   release:
@@ -211,7 +211,7 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts
           RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n1)
-          OUT="artifacts/AssistRestore_v${{ steps.current.outputs.new_name }}.apk"
+          OUT="artifacts/OplusAssistant_v${{ steps.current.outputs.new_name }}.apk"
           cp "$RELEASE_APK" "$OUT"
           sha256sum "$OUT" | tee "${OUT}.sha256"
           echo "release_apk=${OUT}" >> "$GITHUB_OUTPUT"
@@ -255,7 +255,7 @@ jobs:
             echo "### Verification"
             echo
             echo '```'
-            APK_NAME="AssistRestore_v${NEW_NAME}.apk"
+            APK_NAME="OplusAssistant_v${NEW_NAME}.apk"
             SHA=$(awk '{print $1}' "${{ steps.stage.outputs.release_sha }}")
             echo "${APK_NAME}"
             echo "sha256: ${SHA}"
@@ -289,7 +289,7 @@ jobs:
       - name: Upload release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AssistRestore-release-v${{ steps.current.outputs.new_name }}
+          name: OplusAssistant-release-v${{ steps.current.outputs.new_name }}
           path: |
             ${{ steps.stage.outputs.release_apk }}
             ${{ steps.stage.outputs.release_sha }}

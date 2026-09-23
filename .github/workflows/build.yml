@@ -76,7 +76,7 @@ jobs:
           VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts)
           echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
           echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
-          echo "Building ColorOS AssistRestore v${VERSION_NAME} (${VERSION_CODE})"
+          echo "Building ColorOS OplusAssistant v${VERSION_NAME} (${VERSION_CODE})"
 
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
@@ -134,8 +134,8 @@ jobs:
           VERSION_NAME="${{ steps.version.outputs.version_name }}"
           DEBUG_APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -n1)
           RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n1)
-          DEBUG_OUT="artifacts/AssistRestore_v${VERSION_NAME}-debug.apk"
-          RELEASE_OUT="artifacts/AssistRestore_v${VERSION_NAME}.apk"
+          DEBUG_OUT="artifacts/OplusAssistant_v${VERSION_NAME}-debug.apk"
+          RELEASE_OUT="artifacts/OplusAssistant_v${VERSION_NAME}.apk"
           cp "$DEBUG_APK" "$DEBUG_OUT"
           cp "$RELEASE_APK" "$RELEASE_OUT"
           sha256sum "$RELEASE_OUT" | tee "${RELEASE_OUT}.sha256"
@@ -146,14 +146,14 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: AssistRestore-debug-v${{ steps.version.outputs.version_name }}
+          name: OplusAssistant-debug-v${{ steps.version.outputs.version_name }}
           path: ${{ steps.stage.outputs.debug_apk }}
           if-no-files-found: error
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: AssistRestore-release-v${{ steps.version.outputs.version_name }}
+          name: OplusAssistant-release-v${{ steps.version.outputs.version_name }}
           path: |
             ${{ steps.stage.outputs.release_apk }}
             ${{ steps.stage.outputs.release_sha }}

@@ -1,126 +1,126 @@
-# ColorOS 唤语（OplusAssistant）
+# OplusAssistant
 
-> 本项目 fork 自 [Andrea-lyz/ColorOS-Assistant-Restore](https://github.com/Andrea-lyz/ColorOS-Assistant-Restore)，原作者为 [Andrea-lyz](https://github.com/Andrea-lyz)。
+An LSPosed module that restores AOSP's default digital-assistant behaviour on China-region ColorOS:
+holding the power button, holding the gesture handle, and swiping in from the left/right bottom corners
+all wake the app currently set as the system default assistant
+(the app that `Settings.Secure.assistant` / `RoleManager.ROLE_ASSISTANT` points to), instead of being hard-wired to Breeno (小布助手).
 
- LSPosed 模块，在 ColorOS 国内版系统上还原 AOSP 的默认数字助理行为：
-长按电源键、长按手势条、屏幕底部左右角落内滑，都改为唤醒系统当前设置的默认助理应用
-（`Settings.Secure.assistant` / `RoleManager.ROLE_ASSISTANT` 指向的应用），而不是固定唤醒小布助手。
+The module only reconnects the few dispatch points that the OEM rewrote. It does not replace the AOSP assistant stack.
 
-模块只连接被 OEM 改写的那几个分派点，不替换 AOSP 的助理栈。
+## 1. Evidence
 
-## 1. 证据基础
+The conclusions come from framework artifacts pulled read-only from the device and from their decompiled output:
 
-结论来自本机从设备只读拉取的框架产物与反编译结果：
-
-| 产物 | 用途 |
+| Artifact | Purpose |
 | --- | --- |
-| `services.jar`（`/system/framework`） | `com.android.server.policy.PhoneWindowManager` 的 `launchAssistAction` |
-| `oplus-services.jar`（`/system/framework`） | `PhoneWindowManagerExtImpl.startSpeech`、`StrategyShutdown` |
-| `系统界面_16.99.12_New.apk` | `AssistManager`、`NavBarUtils`、`SpeedChassistMainBusiness`、`LauncherProxyService` |
-| `设置_16.1.0.apk` | `DefaultVoiceassistPreferenceController`（默认助理选择项） |
-| `/my_region/etc/extension/com.oplus.oplus-feature.xml` | 第 35 行 `oplus.software.speech_assist_for_breeno` |
+| `services.jar` (`/system/framework`) | `launchAssistAction` in `com.android.server.policy.PhoneWindowManager` |
+| `oplus-services.jar` (`/system/framework`) | `PhoneWindowManagerExtImpl.startSpeech`, `StrategyShutdown` |
+| `系统界面_16.99.12_New.apk` (SystemUI) | `AssistManager`, `NavBarUtils`, `SpeedChassistMainBusiness`, `LauncherProxyService` |
+| `设置_16.1.0.apk` (Settings) | `DefaultVoiceassistPreferenceController` (the default-assistant picker) |
+| `/my_region/etc/extension/com.oplus.oplus-feature.xml` | line 35, `oplus.software.speech_assist_for_breeno` |
 
-设备：ColorOS 16（`ro.build.version.oplusrom=V16.1.0`，机型 PJZ110）。
-设备当前状态：`cmd role get-role-holders android.app.role.ASSISTANT` 已经是
-`com.google.android.googlequicksearchbox`，`settings get secure assistant` 同样指向 GSA，
-说明 Framework 侧的助理绑定完全健康，被拦掉的只是各入口的分派。
+> **Compatibility (this fork):** The maintainer of this fork has tested the module working on ColorOS 17 (CN) using a ported ROM on the OnePlus Ace 5. Stock ColorOS 17 firmware.
 
-四个被分析的文件都与设备上实际安装的一致（md5 校验通过），因此 Hook 的方法签名就是运行时的签名：
+Current device state: `cmd role get-role-holders android.app.role.ASSISTANT` already returns
+`com.google.android.googlequicksearchbox`, and `settings get secure assistant` also points to GSA.
+This shows the framework-side assistant binding is fully healthy; what gets blocked is only the dispatch at each entry point.
 
-| 文件 | 设备路径 | md5 |
+All four analysed files match what is actually installed on the device (md5 verified), so the hooked method signatures are the runtime signatures:
+
+| File | Device path | md5 |
 | --- | --- | --- |
 | SystemUI | `/system_ext/priv-app/SystemUI/SystemUI.apk` | `e249e527020ee80547dd8200179b0656` |
 | OPlus framework | `/system/framework/oplus-services.jar` | `9658e6361030204c749d74d2fb7a5ae7` |
 | AOSP framework | `/system/framework/services.jar` | `ce501d636dcee11e2bef77a2270eaead` |
-| 桌面 | `/system_ext/priv-app/OplusLauncher/OplusLauncher.apk` | `e77c29b92cc2df3aece19d5dc46b45d2` |
+| Launcher | `/system_ext/priv-app/OplusLauncher/OplusLauncher.apk` | `e77c29b92cc2df3aece19d5dc46b45d2` |
 
-区域背景：`ro.vendor.oplus.regionmark = CN`（`FeatureOption` 的 `isExpRegion()` 与
-`VENDOR_REGIONMARK`/`getRmRegionName()` 相关，国内值即非 exp），因此下面两道 SystemUI 闸门在本机
-确实都处于关闭状态，模块的补派发路径就是实际生效的路径。
+Region background: `ro.vendor.oplus.regionmark = CN` (`FeatureOption.isExpRegion()` is tied to
+`VENDOR_REGIONMARK` / `getRmRegionName()`; the China value means non-exp). Therefore the two SystemUI gates below
+are both closed on this device, and the module's re-dispatch path is the one that actually takes effect.
 
-### 1.1 长按电源键
+### 1.1 Power-button long press
 
-`PhoneWindowManagerExtImpl.startSpeech(int deviceID, int startSource, long eventTime)` 是按键语义的唯一漏斗
-（`OplusSpeechHandler` 的 `what = 1011` 消息、`startSource = 1024`）。方法内部：
+`PhoneWindowManagerExtImpl.startSpeech(int deviceID, int startSource, long eventTime)` is the single funnel for the key semantics
+(the `what = 1011` message of `OplusSpeechHandler`, `startSource = 1024`). Inside the method:
 
 - `mSpeechAsssistForBreeno = OplusFeatureConfigManager.hasFeature("oplus.software.speech_assist_for_breeno")`
-  在国内固件为 `true`；
-- 于是 `if (!mSpeechAsssistForBreeno && mhasGoogleAssistant)` 的 AOSP 分支（走
-  `mBase.getWrapper().launchAssistAction(...)`）被跳过，直接构造显式 Intent 启动
-  `com.heytap.speechassist` 的前台服务。
+  is `true` on China firmware;
+- so the AOSP branch `if (!mSpeechAsssistForBreeno && mhasGoogleAssistant)` (which goes through
+  `mBase.getWrapper().launchAssistAction(...)`) is skipped, and an explicit Intent is built to start the
+  foreground service of `com.heytap.speechassist`.
 
-### 1.2 长按手势条
+### 1.2 Gesture-handle long press
 
-`SpeedChassistMainBusiness.onLongPressed()` 只做一件事：
-`ActivityStartedHelper.startBreenoService(context, 91)`，即
-`heytap.intent.action.ACTIVATE_SPEECH_ASSIST` + 写死的 `ComponentName`，全程不经过助理栈。
+`SpeedChassistMainBusiness.onLongPressed()` does exactly one thing:
+`ActivityStartedHelper.startBreenoService(context, 91)`, i.e.
+`heytap.intent.action.ACTIVATE_SPEECH_ASSIST` plus a hard-coded `ComponentName`, never touching the assistant stack.
 
-这个手势的开关链路在设置与 SystemUI 之间是断开的，读清楚才知道要不要额外处理：
+The switch chain for this gesture is broken between Settings and SystemUI. You have to read it carefully to know whether extra handling is needed:
 
-| 环节 | 键 / 判定 | 设备当前值 |
+| Step | Key / condition | Current device value |
 | --- | --- | --- |
-| 设置项 `gesture_side_wake_cui`（系统导航方式里那一行；标题由 `NavBarUtil.isSupportOcr()` 在两条静态字符串之间二选一） | 识屏受支持时写 `oplus_home_handle_wake_up_ocr_enable`，否则写 `oplus_gesture_handle_cui_enable`（secure，写入用户 -2） | `oplus_home_handle_wake_up_ocr_enable=1`、`oplus_gesture_handle_cui_enable=0` |
-| 该设置项是否显示（`mGestureSideWakeCuiSwitchIsShow()`） | `isSupportOcr()` 或 `oplus.speechassist.main.type == 2` | `oplus.speechassist.main.type=2` |
-| SystemUI 是否注册手势条长按（`SpeedChassistMainObserver`） | 全局键 `oplus.speechassist.main.type == 2` | 2，即已注册 |
-| 长按后的动作 | 只把 `start_type=91` 交给小布服务，具体执行识屏还是语音由小布侧读上面的 OCR/CUI 键自行决定 | - |
+| Settings item `gesture_side_wake_cui` (the row in system navigation settings; its title is chosen between two static strings by `NavBarUtil.isSupportOcr()`) | Writes `oplus_home_handle_wake_up_ocr_enable` when screen recognition is supported, otherwise `oplus_gesture_handle_cui_enable` (secure, written for user -2) | `oplus_home_handle_wake_up_ocr_enable=1`, `oplus_gesture_handle_cui_enable=0` |
+| Whether that settings item is shown (`mGestureSideWakeCuiSwitchIsShow()`) | `isSupportOcr()` or `oplus.speechassist.main.type == 2` | `oplus.speechassist.main.type=2` |
+| Whether SystemUI registers the gesture-handle long press (`SpeedChassistMainObserver`) | Global key `oplus.speechassist.main.type == 2` | 2, i.e. registered |
+| Action after the long press | Only hands `start_type=91` to the Breeno service; whether it runs screen recognition or voice is decided on the Breeno side by reading the OCR/CUI keys above | - |
 
-也就是说：**设置里那个开关与 SystemUI 的手势注册没有关系**，SystemUI 全程不读这两个 OCR/CUI 键，它只看
-`oplus.speechassist.main.type`，后者才是“长按手势条是否触发”的真正开关。所以模块启用后，长按手势条会直接
-走到 `AssistManager` 并唤醒当前默认助理，不需要动设置里的开关；设置项那行文案是静态字符串资源
-（两种变体由 `NavBarUtil.isSupportOcr()` 选择），不随默认助理变化，属于纯文案层面的差异。
+In other words: **the switch in Settings has nothing to do with SystemUI's gesture registration**. SystemUI never reads those two OCR/CUI keys;
+it only looks at `oplus.speechassist.main.type`, which is the real switch for "does a long press on the gesture handle trigger". So once the module is enabled, a long press on the gesture handle
+goes straight to `AssistManager` and wakes the current default assistant, and you do not need to touch the switch in Settings. The wording of that settings row is a static string resource
+(the two variants are chosen by `NavBarUtil.isSupportOcr()`) and does not change with the default assistant; it is a purely cosmetic difference.
 
-模块另外补了一步：既然 SystemUI 不读那个开关，开关一旦被关掉就会“点了没反应”，所以
-`SystemUiHooks.isHandleWakeSwitchOff()` 按设置的同一规则读这两个键，在“两个键都不是 1、且至少有一个是 0”
-（用户显式关过）时不再派发助理，让开关保持有效；键未设置（-1）时维持原有行为。
+The module adds one more step: since SystemUI does not read that switch, a switch that has been turned off would make taps "do nothing", so
+`SystemUiHooks.isHandleWakeSwitchOff()` reads the two keys by the same rule Settings uses. When "neither key is 1 and at least one is 0"
+(the user explicitly turned it off), it no longer dispatches the assistant, so the switch keeps working. When the keys are unset (-1), the original behaviour is kept.
 
-注意：上面这段是 "SpeedChassistMainBusiness" 这条业务自身的逻辑，本机实测发现真正被注册并处理手势条长按的是
-识屏业务（见第 8.1 节），模块两边都做了处理。
+Note: the paragraph above describes the logic of the "SpeedChassistMainBusiness" business itself. On-device testing found that what is actually registered and handles the gesture-handle long press is
+the screen-recognition business (see section 8.1), and the module handles both.
 
-### 1.3 屏幕底部角落内滑
+### 1.3 Bottom-corner swipe
 
-底角手势由桌面（Launcher/Quickstep）实现，SystemUI 只负责两件事：告诉桌面“助理是否可用”，
-以及在自己这一侧真正启动助理。
+The corner gesture is implemented by the launcher (Launcher/Quickstep). SystemUI only does two things: tell the launcher "the assistant is available",
+and actually launch the assistant on its own side.
 
-- `LauncherProxyService.onNavigationModeChanged` 调用
-  `UtilsStaticToolsExImpl.isAssistantAvailable(...)` → `NavBarUtils.isAssistantAvailable(Context,int,int)`，
-  然后用 `ILauncherProxy.onAssistantAvailable(available, longPressHome)` 通知桌面。
-  该方法第一行就是 `if (!FeatureOption.isExpRegion() || ...) return false;`，国内固件恒为 `false`，
-  于是桌面永远不会启用底角滑动区域。
-- 桌面在手势完成时回调 `ISystemUiProxy.startAssistant(Bundle)` →
-  `NavBarHelper.startAssistant` → `AssistManager.startAssist(Bundle)`。
-- `AssistManager.startAssist` 的整段派发都写在 `if (FeatureOption.isExpRegion() && ...)` 里面，
-  国内固件下该方法记完日志就返回，**不会**调用 `startAssistInternal`。这也是电源键链路最后的断点：
+- `LauncherProxyService.onNavigationModeChanged` calls
+  `UtilsStaticToolsExImpl.isAssistantAvailable(...)` → `NavBarUtils.isAssistantAvailable(Context,int,int)`,
+  then notifies the launcher via `ILauncherProxy.onAssistantAvailable(available, longPressHome)`.
+  The first line of that method is `if (!FeatureOption.isExpRegion() || ...) return false;`, so it is always `false` on China firmware,
+  and the launcher never enables the bottom-corner swipe zones.
+- When the gesture completes, the launcher calls back `ISystemUiProxy.startAssistant(Bundle)` →
+  `NavBarHelper.startAssistant` → `AssistManager.startAssist(Bundle)`.
+- The entire dispatch in `AssistManager.startAssist` is written inside `if (FeatureOption.isExpRegion() && ...)`.
+  On China firmware the method logs and returns, and does **not** call `startAssistInternal`. This is also the last break point of the power-key chain:
   `launchAssistAction` → `SearchManager.launchAssist` → `SearchManagerService.launchAssist` →
   `StatusBarManagerService$1.startAssist` → `IStatusBar.startAssist` →
-  SystemUI `CommandQueue.startAssist` → `AssistManager.startAssist`。
-  中间这几跳都是 AOSP 原样转发（`services.jar` 中未找到 OEM 覆写），区域判断只出现在首尾两处。
+  SystemUI `CommandQueue.startAssist` → `AssistManager.startAssist`.
+  The hops in the middle are all plain AOSP forwarding (no OEM override was found in `services.jar`); the region check appears only at the two ends.
 
-桌面侧的开关逻辑已从设备上拉取的 `/system_ext/priv-app/OplusLauncher/OplusLauncher.apk` 确认，桌面没有
-自己的区域闸门，完全依赖 SystemUI 送来的可用性：
+The launcher-side switch logic was confirmed from `/system_ext/priv-app/OplusLauncher/OplusLauncher.apk` pulled from the device. The launcher has no
+region gate of its own and relies entirely on the availability sent by SystemUI:
 
-- `com.android.quickstep.TouchInteractionService$TISBinder` 实现 `ILauncherProxy.onAssistantAvailable(available, longPressHome)`，
-  收到后 `DeviceState.setAssistantAvailable(available)` + `notifyUpdateRegionForAssistantAndOneHanded()`；
-- 该调用把 `isAssitantValid()` 交给
-  `OplusOrientationTouchTransformerImpl.updateRegionForAssistantAndOneHanded(...)` 计算助理手势区域，
-  `isAssitantValid()` 的定义是 `mAssistantAvailable && (!QuickStepContract.isAssistantGestureDisabled(flags) || ...)`，
-  即**只由这一个标志决定**；
-- 手势本身由 `com.android.quickstep.inputconsumers.AssistantInputConsumer` 处理，完成时经
-  `SystemUiProxy.startAssistant` → `ISystemUiProxy.startAssistant` 回调 SystemUI。
+- `com.android.quickstep.TouchInteractionService$TISBinder` implements `ILauncherProxy.onAssistantAvailable(available, longPressHome)`,
+  and on receipt calls `DeviceState.setAssistantAvailable(available)` + `notifyUpdateRegionForAssistantAndOneHanded()`;
+- that call passes `isAssitantValid()` to
+  `OplusOrientationTouchTransformerImpl.updateRegionForAssistantAndOneHanded(...)` to compute the assistant gesture region,
+  and `isAssitantValid()` is defined as `mAssistantAvailable && (!QuickStepContract.isAssistantGestureDisabled(flags) || ...)`,
+  i.e. it is **decided by this one flag alone**;
+- the gesture itself is handled by `com.android.quickstep.inputconsumers.AssistantInputConsumer`, which on completion calls back into SystemUI through
+  `SystemUiProxy.startAssistant` → `ISystemUiProxy.startAssistant`.
 
-另外，`NavBarUtils.isAssistantAvailable` 里的圈选搜索分支在设备上也不会干扰：`FeatureOption` 中
-`CustomizeFeatureOption.sIsSupportCircleToSearch = isExpRegion() && hasSystemFeature("com.google.android.feature.CONTEXTUAL_SEARCH")`，
-国内固件恒为 `false`，所以底角手势始终归助理使用。
+Also, the circle-to-search branch inside `NavBarUtils.isAssistantAvailable` does not interfere on this device: in `FeatureOption`,
+`CustomizeFeatureOption.sIsSupportCircleToSearch = isExpRegion() && hasSystemFeature("com.google.android.feature.CONTEXTUAL_SEARCH")`
+is always `false` on China firmware, so the bottom-corner gesture always belongs to the assistant.
 
-### 1.4 隐藏手势条后底部中央长按失效
+### 1.4 Long press at bottom centre stops working when the gesture bar is hidden
 
-手势条视图本身不挂触摸监听：底部中央的触摸先由 `SideGestureDetector`（日志 TAG `NoBackGesture`）接收，
-只有同时满足“落点在下手势区域 + `!NavBarUtils.isSideGestureBarHide()` + `!NavBarUtils.getTaskbarStatus()` +
-该视图是 `OplusNavigationHandle`”时，才会调用 `OplusNavigationHandle.handleValidTouchEvent(event)`。
-这段判定在 `SideGestureDetector` 里以两个已投递的 Runnable 各写了一份（ACTION_DOWN 分支与其它事件分支），
-之后才是 `NavigationGestureDetector` 的 `onDown/onShowPress/onPreLongPress/onLongPress` →
-`GestureHomeHandleEventController.onLongClick()`。
+The gesture-bar view itself has no touch listener. Touches at the bottom centre are first received by `SideGestureDetector` (log TAG `NoBackGesture`),
+and `OplusNavigationHandle.handleValidTouchEvent(event)` is only called when all of these hold: "the touch lands in the lower gesture area + `!NavBarUtils.isSideGestureBarHide()` + `!NavBarUtils.getTaskbarStatus()` +
+the view is an `OplusNavigationHandle`".
+This check is written twice in `SideGestureDetector` as two posted Runnables (the ACTION_DOWN branch and the branch for other events),
+and only after that come `NavigationGestureDetector`'s `onDown/onShowPress/onPreLongPress/onLongPress` →
+`GestureHomeHandleEventController.onLongClick()`.
 
-因此 `isSideGestureBarHide()` 为真时，底部中央的触摸根本不会进入手势条，长按无从发生。该方法的定义是：
+So when `isSideGestureBarHide()` is true, touches at the bottom centre never reach the gesture bar at all, and a long press cannot happen. The method is defined as:
 
 ```java
 public static final boolean isSideGestureBarHide() {
@@ -128,318 +128,317 @@ public static final boolean isSideGestureBarHide() {
 }
 ```
 
-- `isGestureSideMode()` = `getNavState() == 3`（`isGestureUpMode()` 则是 `== 2`，那一档的下手势条走
-  `GestureUpGuideBarView` 那条链路，不受这两个判定影响）；
-- `getSwipeSideGestureBarType()` 读 secure 键 `gesture_side_hide_bar_prevention_enable`（只接受 0/1）。
-  这一项与“把手势条画出来还是藏起来”共用同一个标志——下面几处可见性判定读的就是它，所以它就是设置里
-  “隐藏手势条”那一行写的键（键名到界面的对应关系没有在设置包 `设置_16.1.0.apk` 里逐字核对过）。
+- `isGestureSideMode()` = `getNavState() == 3` (`isGestureUpMode()` is `== 2`; the lower gesture bar in that mode uses the
+  `GestureUpGuideBarView` chain and is not affected by these two checks);
+- `getSwipeSideGestureBarType()` reads the secure key `gesture_side_hide_bar_prevention_enable` (only 0/1 are accepted).
+  This is the same flag that decides "draw the gesture bar or hide it". The visibility checks below read exactly this flag, so it is the key written by the
+  "Hide gesture bar" row in Settings (the mapping from key name to UI was not verified word-for-word in the Settings package `设置_16.1.0.apk`).
 
-同一个标志还被用来把手势条藏起来：`NavigationBar.getBarLayoutParams()` 在
-`isHideNavBarGestureMode()`（= `isGestureUpMode() || isSideGestureBarHide()`）为真且不是上滑手势模式时，
-把整个导航栏窗口的 `layoutParams.alpha` 置 0；`OplusNavigationBarView.updateViewVisible$1()` 与
-`OplusNavigationBarInflaterView.resizeLayout()` 也按它决定各子视图的可见性。此外 QS 特殊模式
-（`OplusQSSpecialModeProvider.isSideGestureBarHide()`）与 `UtilsStaticToolsExImpl.canSamplingRegionMode()` 同样读它。
-所以模块只改“触摸转发”这一处判定，不动标志本身、也不动窗口透明度。
+The same flag is also used to hide the gesture bar: `NavigationBar.getBarLayoutParams()` sets the whole navigation-bar window's `layoutParams.alpha` to 0 when
+`isHideNavBarGestureMode()` (= `isGestureUpMode() || isSideGestureBarHide()`) is true and the mode is not swipe-up gesture;
+`OplusNavigationBarView.updateViewVisible$1()` and
+`OplusNavigationBarInflaterView.resizeLayout()` also decide the visibility of each child view from it. In addition, the QS special mode
+(`OplusQSSpecialModeProvider.isSideGestureBarHide()`) and `UtilsStaticToolsExImpl.canSamplingRegionMode()` read it as well.
+So the module only changes this one touch-forwarding check, and touches neither the flag itself nor the window transparency.
 
-设备日志（`log/log.txt`，8.3 复测，当时手势条可见）里同一条链路的证据是：
+The evidence for the same chain in the device log (`log/log.txt`, retest on 8.3, gesture bar visible at the time):
 
 ```
 NoBackGesture-->gestureBar animation: gestureBarNotHide = true, isCorrectHomeHandle = true
 NoBackGesture-->send down event to NavigationBarHandle
 ```
 
-OxygenOS 在隐藏手势条后仍能在原位置长按呼出助理，缺的正是这道判定；模块只在 `SideGestureDetector`
-自己的调用上把 `isSideGestureBarHide()` 回答为 `false`，其余调用方照旧读原值。
+OxygenOS can still trigger the assistant with a long press at the original position after the gesture bar is hidden; what is missing here is exactly that check. The module answers
+`isSideGestureBarHide()` with `false` only for calls made by `SideGestureDetector` itself, and every other caller still reads the original value.
 
-### 1.5 长按手势条时页面同时触发长按
+### 1.5 The page also fires its own long press when the gesture handle is long-pressed
 
-国内固件的手势条不是可触摸窗口：`OplusNavigationHandle extends View` 且不处理触摸，窗口默认
-`touchableRegion=<empty>`（设备实测），底部这一条的按压实际由页面（应用、桌面或输入法）接收，SystemUI 只是通过
-gesture monitor 旁听后再决定是否交给手势条。于是就会出现“助理和页面长按同时发生”：页面自己的长按在 500ms 触发，
-手势条要到 800ms 才判定（`NavigationGestureDetector`：SHOW_PRESS 200ms、onPreLongPress 300ms、LONG_PRESS 800ms），
-页面必然先响。
+On China firmware the gesture handle is not a touchable window: `OplusNavigationHandle extends View` and does not handle touches, and the window's default is
+`touchableRegion=<empty>` (measured on device). A press on this bottom strip is actually received by the page (the app, launcher or input method), and SystemUI only listens in through the
+gesture monitor and then decides whether to hand it to the gesture handle. That is why "the assistant and the page's long press happen at the same time": the page's own long press fires at 500 ms,
+while the gesture handle is only recognised at 800 ms (`NavigationGestureDetector`: SHOW_PRESS 200 ms, onPreLongPress 300 ms, LONG_PRESS 800 ms),
+so the page always reacts first.
 
-模块把手势条自己的那一块交还给导航栏窗口：
+The module hands the gesture handle's own area back to the navigation-bar window:
 
-- **触摸区域**：用 `ViewRootImpl.setTouchableRegion` 把窗口可触摸区设为“手势条那一列 × 底部手势区”，实测为
-  x∈[480,960]、y∈[3080,3168]（窗口内坐标 x∈[480,960]、y∈[88,176]）。宽度取 `oplus` 包的
-  `navigation_gesture_view_width`（实测 480px），高度取 SystemUI 的 `bottom_gesture_area_height`（88px，与
-  `SideGestureDetector` 判定用的值一致），窗口尺寸取导航栏窗口自身，因此隐藏手势条、view 不参与布局时也算得出来。
-- **窗口可见性**：隐藏手势条时 OEM 把窗口 alpha 置 0，WindowManager 会把完全透明的窗口从输入分发里剔除
-  （`inputConfig=NOT_VISIBLE`），区域随之失效。模块在窗口参数生成（`NavigationBar.getBarLayoutParamsForRotation`）
-  与实时开关（`OplusNavigationBarView.updateWindowAlpha`）两处把 0 改写为 0.01，窗口留在输入链路里，画面上依旧不可见。
-- **例外**：输入法可见时主动置空区域（`handle_touch_region_skipped reason=ime_visible`），键盘底部那一排仍归键盘。
+- **Touch region**: `ViewRootImpl.setTouchableRegion` sets the window's touchable area to "the gesture-handle column × the bottom gesture area", measured as
+  x∈[480,960], y∈[3080,3168] (in-window coordinates x∈[480,960], y∈[88,176]). The width comes from the `oplus` package's
+  `navigation_gesture_view_width` (measured 480px), the height from SystemUI's `bottom_gesture_area_height` (88px, the same value used by
+  the `SideGestureDetector` check), and the window size is the navigation-bar window itself, so this can be computed even when the gesture bar is hidden and the view takes no part in layout.
+- **Window visibility**: when the gesture bar is hidden, the OEM sets the window alpha to 0, and WindowManager removes fully transparent windows from input dispatch
+  (`inputConfig=NOT_VISIBLE`), so the region becomes ineffective. The module rewrites 0 to 0.01 in both window-parameter generation (`NavigationBar.getBarLayoutParamsForRotation`)
+  and the live toggle (`OplusNavigationBarView.updateWindowAlpha`), so the window stays in the input chain while still being invisible on screen.
+- **Exception**: when the input method is visible, the region is cleared on purpose (`handle_touch_region_skipped reason=ime_visible`), and the bottom row of the keyboard still belongs to the keyboard.
 
-验证（PJZ110 / ColorOS 16，注入一次底部中央 1.8s 长按后读 `dumpsys input` 的 TouchStates）：手势条显示与隐藏两种状态下，
-触摸目标都是 `NavigationBar_displayId_0`（`targetFlags=FOREGROUND`），应用窗口不在触摸列表里；同时模块日志照常出现
-`hidden_gesture_bar_handle_unblocked` 与 `circle_to_search_triggered`，从手势条位置往上滑回桌面也仍然生效。
+Verification (PJZ110 / ColorOS 16; after injecting one 1.8 s long press at the bottom centre and reading the TouchStates of `dumpsys input`): with the gesture bar both shown and hidden,
+the touch target is `NavigationBar_displayId_0` (`targetFlags=FOREGROUND`), and the app window is not in the touch list. At the same time the module log shows the usual
+`hidden_gesture_bar_handle_unblocked` and `circle_to_search_triggered`, and swiping up from the gesture-handle position back to the home screen still works.
 
-## 2. 模块实现
+## 2. Module implementation
 
-| 进程 | Hook 目标 | 作用 |
+| Process | Hook target | Effect |
 | --- | --- | --- |
-| `system_server` | `PhoneWindowManagerExtImpl.startSpeech(int,int,long)` | 按 AOSP 分支调用 `PhoneWindowManager.launchAssistAction(null, deviceId, eventTime, invocationType, 1)`，并置位 `mSpeechLongPressHandled`；同时补回 OEM 在派发前的震动 `performHapticFeedback(0, "Speech - Long Press")` |
-| `com.android.systemui` | `AssistManager.startAssist(Bundle)` | 先执行原方法；当区域闸门拦下请求（或 `isExpRegion()` 不可解析）时，用同一个 `componentName`/`isService` 调用 `startAssistInternal` 完成派发 |
-| `com.android.systemui` | `NavBarUtils.isAssistantAvailable(Context,int,int)` | 用 AOSP 语义回答：可手势导航 + 已配置助理 + `assist_touch_gesture_enabled` 打开（默认值读框架 `config_assistTouchGestureEnabledDefault`） |
-| `com.android.systemui` | `SpeedChassistMainBusiness.onLongPressed()` | 改为通过 `AssistManager.startAssist`（`invocation_type = 5`）派发 |
-| `com.android.launcher` | `QuickStepContract.isAssistantGestureDisabled(long)` | 只保留屏幕固定/导航栏隐藏/锁屏/下拉/QS 的屏蔽，放开应用可请求的页面级标记（128/1024），让底角手势在设置等页面也能用 |
-| `com.android.systemui` | `OplusOcrScreenServiceHandler.onLongPressed()` | 本机手势条长按的真正入口（震动 + 标志位 + 投递动作），改为在这里走助理派发 |
-| `com.android.systemui` | `OplusOcrScreenServiceHandler.onPreLongPress()` | 长按前的识屏服务预绑定；直接跳过以避免白唤醒识屏服务（它同时是 handleLongPressAction 能被调用的前提，故派发改挂在 onLongPressed） |
-| `com.android.systemui` | `NavBarUtils.isSideGestureBarHide()` | 仅当调用方是 `SideGestureDetector`（底部触摸转发判定）且手势条确实处于隐藏态时回答 `false`，让隐藏手势条后长按仍进入手势条；窗口透明、QS 特殊模式、截屏采样区域等其它调用方保持原值 |
-| `com.android.systemui` | `OplusNavigationHandle.onLayout`、`NavigationBar.getBarLayoutParamsForRotation(int,WindowMetrics)`、`OplusNavigationBarView.updateWindowAlpha(int)` | 把导航栏窗口的可触摸区设为手势条自身那一条；隐藏手势条时把窗口 alpha 从 0 保持为 0.01，避免窗口被剔除出输入分发后页面又拿到这条区域、触发自己的长按 |
+| `system_server` | `PhoneWindowManagerExtImpl.startSpeech(int,int,long)` | Calls `PhoneWindowManager.launchAssistAction(null, deviceId, eventTime, invocationType, 1)` following the AOSP branch and sets `mSpeechLongPressHandled`; also restores the OEM's pre-dispatch vibration `performHapticFeedback(0, "Speech - Long Press")` |
+| `com.android.systemui` | `AssistManager.startAssist(Bundle)` | Runs the original method first; when the region gate blocks the request (or `isExpRegion()` cannot be resolved), calls `startAssistInternal` with the same `componentName`/`isService` to finish the dispatch |
+| `com.android.systemui` | `NavBarUtils.isAssistantAvailable(Context,int,int)` | Answers with AOSP semantics: gesture navigation possible + assistant configured + `assist_touch_gesture_enabled` on (default read from the framework `config_assistTouchGestureEnabledDefault`) |
+| `com.android.systemui` | `SpeedChassistMainBusiness.onLongPressed()` | Changed to dispatch through `AssistManager.startAssist` (`invocation_type = 5`) |
+| `com.android.launcher` | `QuickStepContract.isAssistantGestureDisabled(long)` | Keeps only the blocking for screen pinning / hidden navigation bar / lock screen / notification shade / QS, and releases the page-level flags an app can request (128/1024), so the bottom-corner gesture also works on pages such as Settings |
+| `com.android.systemui` | `OplusOcrScreenServiceHandler.onLongPressed()` | The real entry of the gesture-handle long press on this device (vibration + flag + posting the action); assistant dispatch is now done here |
+| `com.android.systemui` | `OplusOcrScreenServiceHandler.onPreLongPress()` | Pre-binding of the screen-recognition service before the long press; skipped directly to avoid needlessly waking that service (it is also the precondition for `handleLongPressAction` to be called, hence the dispatch is hooked on `onLongPressed`) |
+| `com.android.systemui` | `NavBarUtils.isSideGestureBarHide()` | Answers `false` only when the caller is `SideGestureDetector` (the bottom touch-forwarding check) and the gesture bar really is hidden, so a long press after hiding the gesture bar still reaches the gesture handle; other callers (window transparency, QS special mode, screenshot sampling region) keep the original value |
+| `com.android.systemui` | `OplusNavigationHandle.onLayout`, `NavigationBar.getBarLayoutParamsForRotation(int,WindowMetrics)`, `OplusNavigationBarView.updateWindowAlpha(int)` | Sets the navigation-bar window's touchable region to the gesture handle's own strip; when the gesture bar is hidden, keeps the window alpha at 0.01 instead of 0, so the window is not removed from input dispatch (which would give the strip back to the page and trigger the page's own long press) |
 
-设计约束：
+Design constraints:
 
-- 不整体翻转 `FeatureOption.isExpRegion()`。该判定被 SystemUI 大量功能复用（信号图标、运营商
-  定制、面板行为等），整体置真会带来与助理无关的副作用；这里只重写“助理可用性”这一个结论，
-  并在 `AssistManager.startAssist` 中读一次原闸门以决定是否需要补派发。
-- 每个 Hook 单独 try/catch 并绑定 hook id，任一目标类缺失只记录日志，不影响其它 Hook。
-- 全部使用 `ExceptionMode.PROTECTIVE`，异常由框架记录并放行原逻辑，不吞掉调用。
-- 不区分“小布”与第三方助理：`Settings.Secure.assistant` 指向谁就唤醒谁，这正是 AOSP 语义。
+- `FeatureOption.isExpRegion()` is not flipped globally. That check is reused by many SystemUI features (signal icons, carrier
+  customisation, panel behaviour and so on), and forcing it true would cause side effects unrelated to the assistant. Only the single conclusion "assistant availability" is rewritten here,
+  and `AssistManager.startAssist` reads the original gate once to decide whether a re-dispatch is needed.
+- Each hook has its own try/catch and is bound to a hook id. If a target class is missing, only a log line is written and the other hooks are unaffected.
+- All hooks use `ExceptionMode.PROTECTIVE`: exceptions are recorded by the framework and the original logic is let through, so nothing is swallowed.
+- No distinction is made between Breeno and third-party assistants: whoever `Settings.Secure.assistant` points to gets woken, which is exactly AOSP semantics.
 
-## 3. 工程结构
+## 3. Project structure
 
 ```
 OplusAssistant/
-├─ app/                             模块 APK（`io.github.wajahatnaeem056.oplusassistant`）
+├─ app/                             Module APK (`io.github.wajahatnaeem056.oplusassistant`)
 │  ├─ src/main/java/io/github/wajahatnaeem056/oplusassistant/
-│  │  ├─ OplusAssistantModule.java   入口，按进程与包名路由
-│  │  ├─ SystemUiHooks.java         SystemUI 三个 Hook
-│  │  ├─ SystemServerHooks.java     system_server 电源键派发
-│  │  ├─ CtsHooks.java              system_server 侧补齐 ContextualSearch 服务
-│  │  ├─ LauncherHooks.java         桌面侧按页面放开底角手势
-│  │  ├─ GoogleAppHooks.java        Google 应用进程内的机型伪装
-│  │  └─ Refl.java                  反射小工具
+│  │  ├─ OplusAssistantModule.java   Entry point, routes by process and package name
+│  │  ├─ SystemUiHooks.java         The three SystemUI hooks
+│  │  ├─ SystemServerHooks.java     Power-key dispatch in system_server
+│  │  ├─ CtsHooks.java              Fills in the ContextualSearch service on the system_server side
+│  │  ├─ LauncherHooks.java         Per-page release of the bottom-corner gesture on the launcher side
+│  │  ├─ GoogleAppHooks.java        Device-model spoofing inside the Google app process
+│  │  └─ Refl.java                  Small reflection helper
 │  ├─ src/main/kotlin/io/github/wajahatnaeem056/oplusassistant/ui/
-│  │  ├─ MainActivity.kt            设置界面的宿主 Activity
-│  │  ├─ OplusAssistantApp.kt        五个页面：入口 / 唤醒目标 / 自定义 / 高级 / 诊断
-│  │  ├─ AssistData.kt              读设备上的助理候选与当前默认助理
-│  │  └─ Theme.kt                   Material 3 主题
-│  ├─ src/main/res/values{,-night}/themes.xml   界面主题（日夜两套）
+│  │  ├─ MainActivity.kt            Host Activity of the settings UI
+│  │  ├─ OplusAssistantApp.kt        Five pages: entry / wake target / custom / advanced / diagnostics
+│  │  ├─ AssistData.kt              Reads assistant candidates and the current default assistant from the device
+│  │  └─ Theme.kt                   Material 3 theme
+│  ├─ src/main/res/values{,-night}/themes.xml   UI theme (light and night)
 │  └─ src/main/resources/META-INF/xposed/{module.prop,java_init.list,scope.list}
-├─ libxposed-api/                   compileOnly 用的 API 102 源码模块
-│  ├─ src/api/java/                 随仓库提供的 API 102 源码（见 src/api/README.md）
-│  └─ build.gradle.kts              sourceSets.java.srcDir 指向 src/api/java
+├─ libxposed-api/                   API 102 source module used as compileOnly
+│  ├─ src/api/java/                 API 102 source shipped with the repo (see src/api/README.md)
+│  └─ build.gradle.kts              sourceSets.java.srcDir points to src/api/java
 └─ gradle/wrapper/                  Gradle 8.13 + AGP 8.13.2
 ```
 
-`:libxposed-api` 以 `sourceSets.java.srcDir` 指向随仓库提供的 `src/api/java`（取自上游
-`libxposed/api` 的 commit `79b75b4`，即 tag `102.0.0` 后三个提交，`XposedInterface.API_102 = 102`），
-因此编译用的就是那份 API 102 源码本身，而不是下载的二进制；
-`io.github.libxposed.annotation.SinceApi/InternalApi` 未随上游提供，用 `src/annotation/java` 下的
-两个编译期注解补齐。API 始终是 `compileOnly`，不会进入 APK。
+`:libxposed-api` points `sourceSets.java.srcDir` at the `src/api/java` shipped with the repo (taken from upstream
+`libxposed/api` commit `79b75b4`, i.e. three commits after tag `102.0.0`, `XposedInterface.API_102 = 102`),
+so what is compiled against is that API 102 source itself, not a downloaded binary.
+`io.github.libxposed.annotation.SinceApi/InternalApi` are not shipped upstream, so the two compile-time annotations under `src/annotation/java` fill that gap.
+The API is always `compileOnly` and never ends up in the APK.
 
-`scope.list` 是四项：`system`、`com.android.systemui`、`com.android.launcher` 与
-`com.google.android.googlequicksearchbox`，分别对应电源键与区域闸门、手势链路、底角手势的页面级放开、
-以及 Google 应用进程内的机型伪装。
-`module.prop` 使用 `minApiVersion=102`、`targetApiVersion=102`、`exceptionMode=protective`、
-`autoHotReload=false`。
+`scope.list` has four entries: `system`, `com.android.systemui`, `com.android.launcher` and
+`com.google.android.googlequicksearchbox`, corresponding respectively to the power key and region gate, the gesture chain, the per-page release of the bottom-corner gesture,
+and the device-model spoofing inside the Google app process.
+`module.prop` uses `minApiVersion=102`, `targetApiVersion=102`, `exceptionMode=protective` and
+`autoHotReload=false`.
 
-界面部分是 Kotlin + Jetpack Compose（material3）写的，目前只做界面：列表里的助理候选与「当前默认
-助理」是真从设备读的（`PackageManager` 查 `VoiceInteractionService` 与 `ACTION_ASSIST`，按包名
-去重后取应用自己的图标和 label；默认助理读 `Settings.Secure.assistant`），开关和选择只改界面状态、
-还没有写入任何配置，「三个入口各指定一个目标」那套逻辑尚未接入。构建带 `--offline`，所以 Compose /
-AndroidX 的版本固定在 `app/build.gradle.kts` 的 `resolutionStrategy` 里，对应本机 Gradle 缓存中实际
-存在的版本（Compose 运行时 1.10.5、lifecycle 2.9.4 等）；换机器构建前要先确认这些版本在目标缓存里。
+The UI is written in Kotlin + Jetpack Compose (material3) and is UI-only for now: the assistant candidates in the list and the "current default
+assistant" are really read from the device (`PackageManager` queries `VoiceInteractionService` and `ACTION_ASSIST`, de-duplicates by package name, then takes the app's own icon and label; the default assistant is read from `Settings.Secure.assistant`). The switches and selections only change UI state
+and do not write any configuration yet, and the "assign one target to each of the three entry points" logic is not wired in. The build uses `--offline`, so the Compose /
+AndroidX versions are pinned in the `resolutionStrategy` of `app/build.gradle.kts`, matching the versions actually present in the local Gradle cache
+(Compose runtime 1.10.5, lifecycle 2.9.4, etc.). Before building on another machine, first confirm that these versions exist in the target cache.
 
-## 4. 构建
+## 4. Build
 
 ```powershell
 cd path/to/OplusAssistant
 .\gradlew.bat --offline assembleDebug
 ```
 
-产物：`app/build/outputs/apk/debug/app-debug.apk`。
+Output: `app/build/outputs/apk/debug/app-debug.apk`.
 
-> 注意：本机 `GRADLE_USER_HOME=E:\Buildcache\gradle`，Gradle 需要写该目录；在受限沙盒里会因
-> `gradle-8.13-bin.zip.lck` 访问被拒而失败，需在沙盒外运行。
+> Note: on the original dev machine `GRADLE_USER_HOME=E:\Buildcache\gradle`, and Gradle needs to write to that directory. In a restricted sandbox it fails with
+> `gradle-8.13-bin.zip.lck` access denied, so it must be run outside the sandbox.
 
-## 5. 安装与验证
+## 5. Installation and verification
 
-1. 安装 APK，在 LSPosed 中启用模块，作用域勾选 **系统框架（system）**、**系统界面（com.android.systemui）** 与 **桌面（com.android.launcher）**（桌面这一项是放开“按页面限制”新增的）。
-2. 重启设备（`system_server` 的 Hook 在开机阶段装载，必须重启才生效）。仅重启 SystemUI 只够验证手势链路。
-3. 确认默认助理：
+1. Install the APK and enable the module in LSPosed. In the scope, tick **System Framework (system)**, **System UI (com.android.systemui)** and **Launcher (com.android.launcher)** (the launcher entry was added for the "release the per-page restriction" feature).
+2. Reboot the device (the `system_server` hooks are loaded during boot and only take effect after a reboot). Restarting only SystemUI is enough to verify the gesture chain.
+3. Confirm the default assistant:
    ```bash
    cmd role get-role-holders android.app.role.ASSISTANT
    settings get secure assistant
    settings put secure assist_touch_gesture_enabled 1
    ```
 
-   参考值（已在设备上核实）：默认助理为 GSA，`assist_long_press_home_enabled=1`，
-   `navigation_mode=2`（手势导航），`assist_touch_gesture_enabled` 未设置；
-   `cmd overlay lookup android android:bool/config_assistTouchGestureEnabledDefault` 返回 `true`，
-   即底角手势默认开启，**不需要**再执行 `settings put`。
-4. 分别验证三条链路，并对照 LSPosed 日志（TAG `OplusAssistant`）：
-   - 长按电源键 → 日志 `power_key_long_press startSource=1024 ...` → `power_key_haptic effect=0 reason=Speech - Long Press` → `assist_dispatch component=...`；
-   - 长按手势条 → 日志 `gesture_handle_long_press invocationType=5` → `assist_dispatch ...`；
-   - 底部角落内滑 → 日志 `assistant_availability available=true ...` 之后出现 `assist_dispatch ...`。
-  导航栏“长按手势指示条”这一项（设置键 `gesture_side_wake_cui`）在设备上的取值为
-   `oplus_home_handle_wake_up_ocr_enable=1`、`oplus_gesture_handle_cui_enable=0`，注册键
-   `oplus.speechassist.main.type=2`，即该手势当前处于开启状态；模块在该开关被显式关闭时会让手势不动作。
+   Reference values (verified on the device): the default assistant is GSA, `assist_long_press_home_enabled=1`,
+   `navigation_mode=2` (gesture navigation), `assist_touch_gesture_enabled` is unset;
+   `cmd overlay lookup android android:bool/config_assistTouchGestureEnabledDefault` returns `true`,
+   i.e. the bottom-corner gesture is on by default and you do **not** need to run `settings put`.
+4. Verify the three chains one by one and compare with the LSPosed log (TAG `OplusAssistant`):
+   - Power-button long press → log `power_key_long_press startSource=1024 ...` → `power_key_haptic effect=0 reason=Speech - Long Press` → `assist_dispatch component=...`;
+   - Gesture-handle long press → log `gesture_handle_long_press invocationType=5` → `assist_dispatch ...`;
+   - Bottom-corner swipe → log `assistant_availability available=true ...`, followed by `assist_dispatch ...`.
 
-## 6. 已知限制
+   The navigation-bar item "Long-press gesture indicator" (settings key `gesture_side_wake_cui`) has these values on the device:
+   `oplus_home_handle_wake_up_ocr_enable=1`, `oplus_gesture_handle_cui_enable=0`, and the registration key
+   `oplus.speechassist.main.type=2`, i.e. that gesture is currently on. When that switch is explicitly turned off, the module makes the gesture do nothing.
 
-- **区域闸门的读取方式。** `AssistManager.startAssist` 的补派发以一次
-  `FeatureOption.isExpRegion()` 调用为条件；若该静态方法在目标版本上不存在，模块会按“闸门关闭”处理，
-  与国内固件行为一致。
-- `startAssistInternal` 是 OEM 区域分支真正调用的下层方法，直接调用它会跳过
-  `AssistManagerImpl.beforeStartAssistInternal` 里的锁屏设备检查与圈选搜索拦截。国内固件本就不会走到那里，
-  差异仅出现在这些边缘场景。
-- 模块不修改 `Settings.Secure.assistant`，也不安装助理应用；助理必须已经在系统“默认应用”里可选项中出现
-  （例如已安装并支持 `VoiceInteractionService` / `ACTION_ASSIST`）。
-- 未处理 3 秒长按关机、SOS 连按等电源键其它语义，这些路径不经过 `startSpeech`。
-- 三条链路的静态证据已完整（含桌面侧与框架默认值），但**尚未在设备上安装运行**：模块的实际行为
-  仍需要按第 5 节做一次设备验证。
-- **隐藏手势条时的长按**：结论来自静态分析（`SideGestureDetector` + `NavBarUtils`）与设备日志里的
-  `gestureBarNotHide` 判定，尚未在真机上打开“隐藏手势条”复测。验证时打开该开关后长按底部中央，日志应先出现
-  `hidden_gesture_bar_handle_unblocked mode=...`，随后是原有的 `gesture_handle_long_press invocationType=5`。
-  这条链只覆盖侧滑返回手势（`getNavState() == 3`）；上滑手势模式下的下手势条长按是另一条链路，未做改动。
-- 设置里“长按手势指示条唤醒小布识屏”的**文案仍然是写死的静态字符串资源**（`NavBarUtil.isSupportOcr()` 决定用
-  “小布识屏”还是非识屏那条），不会随默认助理变化。行为已由模块改为唤醒默认助理，但这一行文字需要在意的
-  话有三条路：保持不动；给 `com.android.settings` 做 RRO 覆盖替换那两条字符串（一个独立 overlay APK，最干净，
-  不依赖 Hook）；或者把 `com.android.settings` 加入模块作用域、Hook 该设置项按默认助理名动态改标题。后两者
-  都还没有做。
+## 6. Known limitations
 
-## 7. 排错
+- **How the region gate is read.** The re-dispatch in `AssistManager.startAssist` is conditional on one call to
+  `FeatureOption.isExpRegion()`. If that static method does not exist on the target version, the module treats the gate as closed,
+  which matches China firmware behaviour.
+- `startAssistInternal` is the lower-level method that the OEM region branch really calls. Calling it directly skips the lock-screen device check and the circle-to-search interception in
+  `AssistManagerImpl.beforeStartAssistInternal`. China firmware never gets there anyway,
+  so the difference only appears in these edge cases.
+- The module does not modify `Settings.Secure.assistant` and does not install an assistant app; the assistant must already appear among the options in the system "Default apps"
+  (for example, installed and supporting `VoiceInteractionService` / `ACTION_ASSIST`).
+- Other power-key semantics such as the 3-second long-press shutdown and the SOS multi-press are not handled; those paths do not go through `startSpeech`.
+- The static evidence for all three chains is complete (including the launcher side and the framework default), but the module has **not yet been installed and run on the device** at the time of writing this section: its actual behaviour
+  still needs a device verification following section 5.
+- **Long press while the gesture bar is hidden**: the conclusion comes from static analysis (`SideGestureDetector` + `NavBarUtils`) and from the
+  `gestureBarNotHide` check in the device log; it has not been retested on a real device with "Hide gesture bar" turned on. To verify, turn that switch on and long-press the bottom centre; the log should first show
+  `hidden_gesture_bar_handle_unblocked mode=...`, followed by the existing `gesture_handle_long_press invocationType=5`.
+  This chain only covers the side-swipe back gesture (`getNavState() == 3`); the lower gesture-bar long press in swipe-up gesture mode is a different chain and was left unchanged.
+- The **label** of "long-press the gesture indicator to wake Breeno Screen Recognition (小布识屏)" in Settings is **still a hard-coded static string resource** (`NavBarUtil.isSupportOcr()` decides whether to use
+  the "Breeno Screen Recognition" one or the non-recognition one), and it does not change with the default assistant. The behaviour has been changed by the module to wake the default assistant, but if that wording matters to you,
+  there are three options: leave it alone; replace those two strings with an RRO overlay for `com.android.settings` (a standalone overlay APK, the cleanest, no hooks needed);
+  or add `com.android.settings` to the module's scope and hook that settings item to rewrite the title dynamically with the default assistant's name. The last two
+  have not been done.
 
-| 现象 | 检查 |
+## 7. Troubleshooting
+
+| Symptom | What to check |
 | --- | --- |
-| 日志里没有任何 `OplusAssistant` 输出 | 模块是否启用；作用域是否包含 `system` 与 `com.android.systemui`；是否已重启 |
-| 只有 SystemUI 的 Hook，电源键无效 | `system_server` 的 Hook 需要重启；确认 `hook_installed target=PhoneWindowManagerExtImpl.startSpeech` |
-| `assist_dispatch_skipped reason=no_assistant_configured` | 未设置默认助理，先绑定 `android.app.role.ASSISTANT` |
-| `assistant_availability available=false` | `assist_touch_gesture_enabled` 被设为 0，或当前非手势导航，或该版本真的启用了圈选搜索（国内固件不会） |
-| `hook_failed ... NoSuchMethodException` | 目标类/方法签名随版本变化，按日志里的类名重新核对反编译结果 |
-| `gesture_handle_long_press_skipped reason=nav_bar_switch_off` | 设置里“长按手势指示条”开关被显式关过（两个 OCR/CUI 键的值都是 0），模块按开关语义不派发 |
-| `assist_skip reason=exp_region_active / lock_task_mode / launcher_override` | 派发被主动跳过，日志已给出原因；override 只在该类型被桌面占位时出现 |
-| `gesture_handle_long_press_skipped reason=debounce` | 同一次手势被两处回调重复触发，模块已去重 |
-| 隐藏手势条后底部中央长按没反应 | 看日志里有没有 `hidden_gesture_bar_handle_unblocked`：没有则可能是高级页“隐藏手势条时保持长按”被关闭、该入口选了“小布识屏/全部关闭”，或当前不是侧滑返回手势（`getNavState() == 3`） |
-| `hidden_gesture_bar_handle_unblocked mode=...` | 正常：手势条隐藏时模块放开了长按转发，`mode` 为该入口当前配置 |
-| 长按手势条时页面也触发自己的长按 | 读 `dumpsys input` 里 NavigationBar 窗口的 `touchableRegion` 与 `inputConfig`：区域应为手势条那一条、且不带 `NOT_VISIBLE`；模块日志对应 `handle_touch_region applied=...` 与 `handle_window_alpha=0.01` |
-| `handle_touch_region_skipped reason=ime_visible` | 正常：输入法弹起时该区域交还键盘 |
-| `handle_touch_region_skipped reason=not_owned` | 该入口选了「小布识屏」或「全部关闭」，模块不接管这一条区域 |
-| `gesture_handle_ocr_preload_skipped` | 正常：本次长按由助理接管，已跳过识屏服务预绑定 |
-| `assist_gesture_unblocked pageFlags=0x...` | 正常：该页面只设置了应用可请求的页面级标记，模块放开了底角手势 |
-| `assist_gesture_keep_disabled flags=0x...` | 当前处于锁屏/密码界面、通知栏或 QS 展开、导航栏隐藏或屏幕固定，模块保持屏蔽 |
-| 有 `assist_dispatch` 但屏幕没出现助理 | 派发链路正常，助理进程被冻结/回收（见第 8.2 节） |
-| `power_key_haptic_failed ...` | 震动调用失败（不影响派发，仅日志提醒）；`power_key_haptic effect=0` 才是成功 |
+| No `OplusAssistant` output in the log at all | Whether the module is enabled; whether the scope includes `system` and `com.android.systemui`; whether the device has been rebooted |
+| Only SystemUI hooks exist, the power key does nothing | The `system_server` hook needs a reboot; confirm `hook_installed target=PhoneWindowManagerExtImpl.startSpeech` |
+| `assist_dispatch_skipped reason=no_assistant_configured` | No default assistant is set; bind `android.app.role.ASSISTANT` first |
+| `assistant_availability available=false` | `assist_touch_gesture_enabled` is set to 0, or the device is not in gesture navigation, or this version really has circle-to-search enabled (China firmware does not) |
+| `hook_failed ... NoSuchMethodException` | The target class/method signature changed with the version; recheck against the decompiled output using the class name in the log |
+| `gesture_handle_long_press_skipped reason=nav_bar_switch_off` | The "Long-press gesture indicator" switch in Settings was explicitly turned off (both OCR/CUI keys are 0); the module does not dispatch, following the switch's semantics |
+| `assist_skip reason=exp_region_active / lock_task_mode / launcher_override` | The dispatch was skipped on purpose; the log gives the reason. `override` only appears when that type is occupied by the launcher |
+| `gesture_handle_long_press_skipped reason=debounce` | The same gesture was fired twice by two callbacks; the module already de-duplicates |
+| Long press at bottom centre does nothing after hiding the gesture bar | Check whether `hidden_gesture_bar_handle_unblocked` appears in the log. If not, the "Keep long press when gesture bar is hidden" option on the advanced page may be off, that entry may be set to "Breeno Screen Recognition / all off", or the device is not in side-swipe back gesture mode (`getNavState() == 3`) |
+| `hidden_gesture_bar_handle_unblocked mode=...` | Normal: the module released the long-press forwarding while the gesture bar is hidden; `mode` is the current configuration of that entry |
+| The page also fires its own long press when the gesture handle is long-pressed | Read `touchableRegion` and `inputConfig` of the NavigationBar window in `dumpsys input`: the region should be the gesture handle's strip and must not carry `NOT_VISIBLE`; the matching module logs are `handle_touch_region applied=...` and `handle_window_alpha=0.01` |
+| `handle_touch_region_skipped reason=ime_visible` | Normal: when the input method is up, that region is handed back to the keyboard |
+| `handle_touch_region_skipped reason=not_owned` | That entry is set to "Breeno Screen Recognition" or "All off"; the module does not take over this region |
+| `gesture_handle_ocr_preload_skipped` | Normal: this long press was taken over by the assistant, and the screen-recognition pre-binding was skipped |
+| `assist_gesture_unblocked pageFlags=0x...` | Normal: the page only set app-requestable page-level flags, and the module released the bottom-corner gesture |
+| `assist_gesture_keep_disabled flags=0x...` | The device is on the lock/password screen, the notification shade or QS is expanded, the navigation bar is hidden, or the screen is pinned; the module keeps it blocked |
+| `assist_dispatch` is logged but no assistant appears on screen | The dispatch chain is fine; the assistant process was frozen/reclaimed (see section 8.2) |
+| `power_key_haptic_failed ...` | The vibration call failed (does not affect dispatch, it is only a log reminder); `power_key_haptic effect=0` is the success case |
 
-## 8. 设备实测记录（2026-09-13）
+## 8. On-device test records (2026-09-13)
 
-真机验证暴露了两个问题，日志 `log/log.txt`（19:16–19:21）给出了明确证据。
+Real-device verification exposed two problems, and the log `log/log.txt` (19:16–19:21) gives clear evidence.
 
-### 8.1 长按手势条仍然唤醒小布识屏
+### 8.1 Long-pressing the gesture handle still wakes Breeno Screen Recognition
 
-日志里 `gesture_handle_long_press`（当时挂在 `SpeedChassistMainBusiness.onLongPressed`）一次都没触发，
-而底部中央（x≈780~960）的长按对应的是：
+In the log, `gesture_handle_long_press` (hooked on `SpeedChassistMainBusiness.onLongPressed` at the time) never fired once,
+and the long press at the bottom centre (x≈780~960) corresponds to:
 
 ```
 NoBackGesture-->send down event to NavigationBarHandle
 OcrScreenService-->getServiceIntent bundle: Bundle[{StartUpType=0}]
 ```
 
-桌面侧的输入消费者也只在**底角**出现 `TYPE_...:TYPE_ASSISTANT:...`，底部长按只有 `TYPE_ONE_HANDED`。
-反编译确认真实链路是 `GestureHomeHandleEventController.onLongClick()` → 监听器 `OplusOcrScreenBusiness` →
-`OplusOcrScreenServiceHandler.onLongPressed()` → `handleLongPressAction()` → 识屏服务 `start()`。
-模块在这一族类上挂两处 Hook：`onPreLongPress()` 直接跳过预绑定，派发改挂在 `onLongPressed()`（先 `chain.proceed()` 保留震动与标志位，再派发并去重）；`handleLongPressAction()` 只在识屏服务已连接时才会被调用，所以跳过预绑定后它必然空转，派发不能挂在那里。`SpeedChassistMainBusiness` 的 Hook 继续保留，
-用于其它注册了该业务的版本；两者共用同一段派发与开关判断。
+On the launcher side, the input consumer's `TYPE_...:TYPE_ASSISTANT:...` also only appears at the **bottom corners**; a bottom long press only shows `TYPE_ONE_HANDED`.
+Decompilation confirmed the real chain is `GestureHomeHandleEventController.onLongClick()` → listener `OplusOcrScreenBusiness` →
+`OplusOcrScreenServiceHandler.onLongPressed()` → `handleLongPressAction()` → screen-recognition service `start()`.
+The module hooks two places in this family of classes: `onPreLongPress()` skips the pre-binding directly, and the dispatch is hooked on `onLongPressed()` (first `chain.proceed()` to keep the vibration and flags, then dispatch and de-duplicate). `handleLongPressAction()` is only called when the screen-recognition service is already connected, so after skipping the pre-binding it necessarily runs empty, and the dispatch cannot be hooked there. The `SpeedChassistMainBusiness` hook is kept
+for other versions that register that business; the two share the same dispatch and switch check.
 
-### 8.2 底角手势与电源键“一段时间后无反应”
+### 8.2 Bottom-corner gesture and power key "stop responding after a while"
 
-同一份日志显示这与模块无关：**Google 应用被 ColorOS 冻结/回收，语音交互绑定随之失效**。
+The same log shows this has nothing to do with the module: **the Google app is frozen/reclaimed by ColorOS, and the voice-interaction binding dies with it**.
 
 ```
-19:21:04  power_key_long_press + assist_dispatch（派发正常）→ 没有任何 GSA 界面被创建
-19:21:09  assist_dispatch invocationType=1          → 同样没有 GSA 界面
+19:21:04  power_key_long_press + assist_dispatch (dispatch OK) → no GSA UI was created
+19:21:09  assist_dispatch invocationType=1          → again no GSA UI
 19:21:19  ActivityManager: Killing 29305:...:interactor (adj 100): permissions revoked
 19:21:19  VoiceInteractionServiceManager: onBindingDied to ...GsaVoiceInteractionService
-19:21:19  OplusHansManager: uid=10413 ... F exit(), F stay=51   ← 此前一直处于冻结态
-19:21:21  am_proc_start ...GsaVoiceInteractionService（bindService）；GsaVoiceInteractionSrv: onReady
+19:21:19  OplusHansManager: uid=10413 ... F exit(), F stay=51   ← had been in the frozen state until then
+19:21:21  am_proc_start ...GsaVoiceInteractionService (bindService); GsaVoiceInteractionSrv: onReady
 19:21:24  power_key_long_press + assist_dispatch → wm_create_activity ...FloatyActivity ✔
 19:21:26  assist_dispatch invocationType=1        → wm_create_activity ...FloatyActivity ✔
 ```
 
-结论：模块的派发每次都被调用（`assist_dispatch` 全部有记录），但助理进程被冻结时
-`GsaVoiceInteractionService` 无法响应，会话不会出现；重新选择默认助理会重新绑定并启动该服务，
-于是“有效一段时间”，随后再次被冻结/回收就“无反应”。20:12 前后的日志里还能看到 PermissionController
-对 `SEND_SMS`/`READ_CALL_LOG`/`READ_SMS` 的撤销（`sysui_multi_action`）紧跟 `am_kill`，
-这是 ColorOS 的权限回收/后台冻结机制，不是 LSPosed 层面能改的。
+Conclusion: the module's dispatch is called every time (`assist_dispatch` is recorded every time), but while the assistant process is frozen,
+`GsaVoiceInteractionService` cannot respond and the session does not appear. Re-selecting the default assistant rebinds and starts that service,
+so it "works for a while", and after it is frozen/reclaimed again it "does nothing". Around 20:12 the log also shows PermissionController
+revoking `SEND_SMS`/`READ_CALL_LOG`/`READ_SMS` (`sysui_multi_action`) right before `am_kill`,
+which is ColorOS's permission-reclaim / background-freeze mechanism and cannot be changed at the LSPosed level.
 
-可操作的处理（都在系统/应用侧）：
+Actionable fixes (all on the system/app side):
 
-1. 设置 → 电池/省电（或“手机管家 → 后台冻结/智能省电”）里把 **Google 应用** 设为允许后台运行、不冻结；
-2. 设置 → 权限与隐私 → 权限管理里关闭对该应用的**权限自动回收**；
-3. 验证前先手动打开一次 Google 助理，确认进程已解冻，再试长按电源与底角。
+1. In Settings → Battery / power saving (or "Phone Manager → Background freezing / Smart power saving"), set the **Google app** to allow background running and not be frozen;
+2. In Settings → Permissions & privacy → Permission manager, turn off **automatic permission revocation** for that app;
+3. Before verifying, open Google Assistant manually once to confirm the process is thawed, then try the power-button long press and the bottom corners.
 
-模块为排错新增了原因日志：`assist_skip reason=exp_region_active|lock_task_mode|launcher_override`、
-`gesture_handle_long_press_skipped reason=debounce|nav_bar_switch_off`。下次抓日志时，如果是
-“有 `assist_dispatch` 但系统里没有助理界面”，就说明卡在助理进程本身，而不是派发链路。
+For troubleshooting, the module added reason logs: `assist_skip reason=exp_region_active|lock_task_mode|launcher_override`,
+`gesture_handle_long_press_skipped reason=debounce|nav_bar_switch_off`. Next time you capture a log, if you see
+"`assist_dispatch` is there but no assistant UI appears on the system", the problem is in the assistant process itself and not in the dispatch chain.
 
+### 8.3 Retest result (2026-09-13 19:36–19:38)
 
-### 8.3 复测结果（2026-09-13 19:36–19:38）
+After reinstalling and rebooting, all three entry points reach the assistant, and the 9 `assist_dispatch` calls match the 9 GSA `FloatyActivity` creations one to one:
 
-重装并重启后复测，三条入口全部走到助理，9 次 `assist_dispatch` 与 9 次 GSA `FloatyActivity` 创建一一对应：
-
-| 时间 | 入口 | 模块日志 | 结果 |
+| Time | Entry | Module log | Result |
 | --- | --- | --- | --- |
-| 19:37:40.317 | 手势条长按 | `gesture_handle_long_press invocationType=5` | GSA 创建 19:37:40.469 ✔ |
-| 19:37:44.041 | 底角内滑 | `assist_dispatch invocationType=1` | GSA 创建 19:37:44.106 ✔ |
-| 19:37:47.415 | 长按电源键 | `power_key_long_press startSource=1024` → `invocationType=6` | GSA 创建 19:37:47.467 ✔ |
-| 19:37:53.582 | 底角内滑 | `assist_dispatch invocationType=1` | GSA 创建 19:37:53.653 ✔ |
-| 19:37:57.408 | 手势条长按 | `gesture_handle_long_press invocationType=5` | GSA 创建 19:37:57.462 ✔ |
-| 19:38:00.898 | 手势条长按 | `gesture_handle_long_press invocationType=5` | GSA 创建 19:38:00.969 ✔ |
-| 19:38:04.520 | 底角内滑 | `assist_dispatch invocationType=1` | GSA 创建 19:38:04.581 ✔ |
-| 19:38:09.577 | 长按电源键 | `power_key_long_press startSource=1024` → `invocationType=6` | GSA 创建 19:38:09.635 ✔ |
-| 19:38:12.882 | 手势条长按 | `gesture_handle_long_press invocationType=5` | GSA 创建 19:38:12.930 ✔ |
+| 19:37:40.317 | Gesture-handle long press | `gesture_handle_long_press invocationType=5` | GSA created 19:37:40.469 ✔ |
+| 19:37:44.041 | Corner swipe | `assist_dispatch invocationType=1` | GSA created 19:37:44.106 ✔ |
+| 19:37:47.415 | Power-button long press | `power_key_long_press startSource=1024` → `invocationType=6` | GSA created 19:37:47.467 ✔ |
+| 19:37:53.582 | Corner swipe | `assist_dispatch invocationType=1` | GSA created 19:37:53.653 ✔ |
+| 19:37:57.408 | Gesture-handle long press | `gesture_handle_long_press invocationType=5` | GSA created 19:37:57.462 ✔ |
+| 19:38:00.898 | Gesture-handle long press | `gesture_handle_long_press invocationType=5` | GSA created 19:38:00.969 ✔ |
+| 19:38:04.520 | Corner swipe | `assist_dispatch invocationType=1` | GSA created 19:38:04.581 ✔ |
+| 19:38:09.577 | Power-button long press | `power_key_long_press startSource=1024` → `invocationType=6` | GSA created 19:38:09.635 ✔ |
+| 19:38:12.882 | Gesture-handle long press | `gesture_handle_long_press invocationType=5` | GSA created 19:38:12.930 ✔ |
 
-同一份日志里没有再出现 `assist_skip`、`gesture_handle_long_press_skipped`、GSA 的 `am_kill` / `onBindingDied`，
-8.2 的冻结/回收现象在这段时间内没有复现（重启后进程处于活动状态）。
+The same log shows no more `assist_skip`, `gesture_handle_long_press_skipped`, or GSA `am_kill` / `onBindingDied`,
+so the freeze/reclaim behaviour from 8.2 did not reappear in this period (the process was active after the reboot).
 
-这一点已在该版本处理：曾经残留的是 `OcrScreenService-->getServiceIntent`（长按刚按下时的识屏服务预绑定，由
-`OplusOcrScreenServiceHandler.onPreLongPress()` 发起），它虽然不会启动识屏（日志里 `assistantscreen` 没有任何可见性变化），但会白唤醒一次识屏服务。
-现在 `onPreLongPress()` 也加了 Hook：无条件跳过预绑定，日志出现
-`gesture_handle_ocr_preload_skipped`，`OcrScreenService-->getServiceIntent` 不再出现；
-而在模块不接管的路径（开关关闭、或助理管线解析失败）仍然保留 OEM 的原始预绑定行为。
+That point has been handled in this version: what used to remain was `OcrScreenService-->getServiceIntent` (the screen-recognition service pre-binding right when the long press starts, initiated by
+`OplusOcrScreenServiceHandler.onPreLongPress()`). It does not start screen recognition (the log shows no visibility change of `assistantscreen`), but it needlessly wakes the screen-recognition service once.
+`onPreLongPress()` is now hooked as well: it unconditionally skips the pre-binding, the log shows
+`gesture_handle_ocr_preload_skipped`, and `OcrScreenService-->getServiceIntent` no longer appears;
+on paths the module does not take over (switch off, or the assistant pipeline fails to resolve), the OEM's original pre-binding behaviour is still kept.
 
-### 8.4 按页面解除底角手势限制
+### 8.4 Releasing the bottom-corner gesture restriction per page
 
-桌面判断底角手势能不能用，靠的是 `com.android.systemui.shared.system.QuickStepContract.isAssistantGestureDisabled(long)`，本机掩码为 `3083`：
+The launcher decides whether the bottom-corner gesture can be used through `com.android.systemui.shared.system.QuickStepContract.isAssistantGestureDisabled(long)`, whose mask on this device is `3083`:
 
-| 位 | 常量 | 含义 | 模块处理 |
+| Bit | Constant | Meaning | Module handling |
 | --- | --- | --- | --- |
-| 1 | SYSUI_STATE_SCREEN_PINNING | 屏幕固定 | 保持屏蔽 |
-| 2 | SYSUI_STATE_NAV_BAR_HIDDEN | 导航栏隐藏 | 保持屏蔽（ALLOW_GESTURE 置位时按原逻辑忽略该位） |
-| 8 | SYSUI_STATE_BOUNCER_SHOWING | 锁屏密码界面 | 保持屏蔽 |
-| 128 | SYSUI_STATE_OVERVIEW_DISABLED | **由前台应用请求** | 放开 |
-| 1024 | SYSUI_STATE_SEARCH_DISABLED | **由前台应用请求** | 放开 |
-| 2048 | SYSUI_STATE_QUICK_SETTINGS_EXPANDED | QS 展开 | 保持屏蔽 |
-| 4（且 64 未置位） | SYSUI_STATE_NOTIFICATION_PANEL_EXPANDED | 通知栏展开且不在锁屏 | 保持屏蔽 |
+| 1 | SYSUI_STATE_SCREEN_PINNING | Screen pinning | Keep blocked |
+| 2 | SYSUI_STATE_NAV_BAR_HIDDEN | Navigation bar hidden | Keep blocked (when ALLOW_GESTURE is set, this bit is ignored by the original logic) |
+| 8 | SYSUI_STATE_BOUNCER_SHOWING | Lock-screen password screen | Keep blocked |
+| 128 | SYSUI_STATE_OVERVIEW_DISABLED | **Requested by the foreground app** | Release |
+| 1024 | SYSUI_STATE_SEARCH_DISABLED | **Requested by the foreground app** | Release |
+| 2048 | SYSUI_STATE_QUICK_SETTINGS_EXPANDED | QS expanded | Keep blocked |
+| 4 (and 64 not set) | SYSUI_STATE_NOTIFICATION_PANEL_EXPANDED | Notification shade expanded and not on lock screen | Keep blocked |
 
-128 与 1024 是前台应用通过 `StatusBarManager.disable()` 一类接口请求的，也正是“某些页面（如设置里的部分页面）底角手势没反应”的来源；这两个位与手势本身没有冲突，所以模块只清零它们，其余状态照旧屏蔽。
-对应日志：放开时打 `assist_gesture_unblocked pageFlags=0x...`，保持屏蔽时打 `assist_gesture_keep_disabled flags=0x...`（该行会带上完整 flags，便于下次核对是哪一位在起作用）。
-注意这一项需要把 `com.android.launcher` 加入模块作用域；电源键链路不受页面影响（`StrategyIngoreKeyInFocusedWindow` 只拦 HOME/MENU，不拦电源键）。
+128 and 1024 are requested by the foreground app through interfaces like `StatusBarManager.disable()`, and they are exactly the source of "the bottom-corner gesture does nothing on some pages (such as some pages in Settings)". These two bits do not conflict with the gesture itself, so the module only clears them and keeps blocking every other state.
+Matching logs: when releasing it logs `assist_gesture_unblocked pageFlags=0x...`, and when keeping it blocked it logs `assist_gesture_keep_disabled flags=0x...` (that line carries the full flags, making it easy to check next time which bit is in effect).
+Note that this requires adding `com.android.launcher` to the module's scope; the power-key chain is not affected by the page (`StrategyIngoreKeyInFocusedWindow` only intercepts HOME/MENU, not the power key).
 
-### 8.5 手势条长按改为 Circle to Search（一圈即搜）
+### 8.5 Gesture-handle long press changed to Circle to Search
 
-CN 固件的 SystemUI 里 CTS 那套是空实现（`OplusCircleToSearchManagerEx.interceptStartAssistInternal()` 恒返回 false、Impl 为空类），
-所以不靠助理路由，而是补上系统服务链路。做法参考了 `E:\\我开发的模块\\Gemini2\\Oplus-Assistant-Hook` 的实现思路：
+In the CN firmware's SystemUI, the CTS part is an empty implementation (`OplusCircleToSearchManagerEx.interceptStartAssistInternal()` always returns false and Impl is an empty class),
+so instead of relying on assistant routing, the system-service chain is filled in. The approach follows the implementation idea of `E:\\我开发的模块\\Gemini2\\Oplus-Assistant-Hook`:
 
-| 层 | 进程 | 模块动作 |
+| Layer | Process | Module action |
 | --- | --- | --- |
-| 框架 CTS 服务 | `system` | `SystemServer.deviceHasConfigString()` 对 `config_defaultContextualSearchPackageName` 强制 true；`ContextualSearchManagerService.getContextualSearchPackageName()` 返回 Google 包名；`enforcePermission()` 仅对 system 与 SystemUI 放行；`startContextualSearch(int)` 对可信调用方清空调用身份 |
-| Google 应用身份 | `com.google.android.googlequicksearchbox` | 进程内把 `Build.MANUFACTURER/BRAND/MODEL/PRODUCT/DEVICE` 伪装为 Samsung SM-S928B（e3s），解锁 GSA 侧一圈即搜 |
-| 手势触发 | `com.android.systemui` | 手势条长按**先看默认助理是不是 Google 应用**：是则调 `contextual_search` 服务的 `IContextualSearchManager.startContextualSearch(2)`；不是（例如设成小布）或服务不可用时，改为**派发给当前默认助理** |
+| Framework CTS service | `system` | `SystemServer.deviceHasConfigString()` is forced true for `config_defaultContextualSearchPackageName`; `ContextualSearchManagerService.getContextualSearchPackageName()` returns the Google package name; `enforcePermission()` only lets system and SystemUI through; `startContextualSearch(int)` clears the calling identity for trusted callers |
+| Google app identity | `com.google.android.googlequicksearchbox` | Inside the process, `Build.MANUFACTURER/BRAND/MODEL/PRODUCT/DEVICE` are spoofed as Samsung SM-S928B (e3s), unlocking Circle to Search on the GSA side |
+| Gesture trigger | `com.android.systemui` | A gesture-handle long press **first checks whether the default assistant is the Google app**: if so, it calls `IContextualSearchManager.startContextualSearch(2)` of the `contextual_search` service; if not (for example it is set to Breeno) or the service is unavailable, it **dispatches to the current default assistant** instead |
 
-作用域因此新增一项：`com.google.android.googlequicksearchbox`（见 `scope.list`）。
+The scope therefore gains one entry: `com.google.android.googlequicksearchbox` (see `scope.list`).
 
-日志关键字：`cts_device_has_config_string forced=true`、`cts_package_name`、`cts_enforce_permission`、
-`cts_start_contextual_search entrypoint=2`、`google_app_identity_spoofed`、`circle_to_search_triggered`、`gesture_handle_assistant component=... circleToSearch=true|false`（后者说明该次手势跟随的是默认助理还是 Google 的一圈即搜）；
-回落到助理时会打 `circle_to_search_unavailable` 或 `circle_to_search_failed`。
+Log keywords: `cts_device_has_config_string forced=true`, `cts_package_name`, `cts_enforce_permission`,
+`cts_start_contextual_search entrypoint=2`, `google_app_identity_spoofed`, `circle_to_search_triggered`, `gesture_handle_assistant component=... circleToSearch=true|false` (the latter shows whether that gesture followed the default assistant or Google's Circle to Search);
+when falling back to the assistant it logs `circle_to_search_unavailable` or `circle_to_search_failed`.
 
-与 Oplus-Assistant-Hook 的关系：两边都做同一件事，**同一手势不要同时启用**——如果启用对方模块的手势条或电源键接管（它挂在 `OplusOcrScreenBusiness.onLongPressed` / `OplusSpeechHandler.handleMessage` 等更外层），它会先接管并直接返回，本模块对应 Hook 就不会执行。
+Relation to Oplus-Assistant-Hook: both modules do the same thing, so **do not enable both for the same gesture**. If you enable the other module's gesture-handle or power-key takeover (it hooks in the outer layers such as `OplusOcrScreenBusiness.onLongPressed` / `OplusSpeechHandler.handleMessage`), it takes over first and returns directly, and the corresponding hook of this module never runs.
 
-## 9. English summary
+## 9. Summary
 
-ColorOS 唤语 (OplusAssistant) is a minimal libxposed API 102 module that restores AOSP default-assistant behaviour on
+OplusAssistant is a minimal libxposed API 102 module that restores AOSP default-assistant behaviour on
 China-region ColorOS builds. The build keeps the AOSP assistant stack intact and only diverts each
 entry point, so the module reconnects those four diversion points: the power-key funnel
 (`PhoneWindowManagerExtImpl.startSpeech` in `system_server`), the gesture-handle long press

@@ -28,7 +28,7 @@ Each entry has its own wake target and can be turned off individually. Beyond th
 
 ## Requirements
 
-- A China-region ColorOS build. Verified on ColorOS 16 And 17`V16.1.0` /`regionmark=CN`.
+- A China-region ColorOS build. Verified on ColorOS 16 And 17 /`regionmark=CN`.
 - Root via KernelSU, Magisk, or similar.
 - A framework that supports libxposed API 102, such as LSPosed.
 

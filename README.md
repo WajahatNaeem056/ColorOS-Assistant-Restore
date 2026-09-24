@@ -1,8 +1,5 @@
 # OplusAssistant
 
-> **Fork notice:** OplusAssistant is a fork of [Andrea-lyz/ColorOS-Assistant-Restore](https://github.com/Andrea-lyz/ColorOS-Assistant-Restore). The original module, the reverse-engineering work and the core hooks are by [Andrea-lyz](https://github.com/Andrea-lyz). See [Credits](#credits).
-
-
 [![libxposed API](https://img.shields.io/badge/libxposed-API%20102-brightgreen)](https://github.com/libxposed/api)
 [![Platform](https://img.shields.io/badge/ColorOS-17%20CN-1a73e8)](docs/technical-notes.zh.md)
 [![Root](https://img.shields.io/badge/Root-KernelSU%20%7C%20Magisk-orange)](#requirements)

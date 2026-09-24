@@ -34,7 +34,7 @@ Each entry has its own wake target and can be turned off individually. Beyond th
 
 ## Installation
 
-1. Install `app-debug.apk`.
+1. Install `OplusAssistant.apk`.
 2. Enable the module in LSPosed and select all four scopes:
 
    ```

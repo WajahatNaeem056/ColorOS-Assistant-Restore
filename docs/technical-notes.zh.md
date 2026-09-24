@@ -15,8 +15,8 @@ The conclusions come from framework artifacts pulled read-only from the device a
 | --- | --- |
 | `services.jar` (`/system/framework`) | `launchAssistAction` in `com.android.server.policy.PhoneWindowManager` |
 | `oplus-services.jar` (`/system/framework`) | `PhoneWindowManagerExtImpl.startSpeech`, `StrategyShutdown` |
-| `系统界面_16.99.12_New.apk` (SystemUI) | `AssistManager`, `NavBarUtils`, `SpeedChassistMainBusiness`, `LauncherProxyService` |
-| `设置_16.1.0.apk` (Settings) | `DefaultVoiceassistPreferenceController` (the default-assistant picker) |
+| ```System.apk` (SystemUI) | `AssistManager`, `NavBarUtils`, `SpeedChassistMainBusiness`, `LauncherProxyService` |
+| ``Settings.apk`` (Settings) | `DefaultVoiceassistPreferenceController` (the default-assistant picker) |
 | `/my_region/etc/extension/com.oplus.oplus-feature.xml` | line 35, `oplus.software.speech_assist_for_breeno` |
 
 > **Compatibility (this fork):** The maintainer of this fork has tested the module working on ColorOS 17 (CN) using a ported ROM on the OnePlus Ace 5. Stock ColorOS 17 firmware.

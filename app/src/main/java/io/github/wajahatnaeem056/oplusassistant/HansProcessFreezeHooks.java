@@ -9,7 +9,7 @@ final class HansProcessFreezeHooks {
 
     private HansProcessFreezeHooks() {}
 
-    static void install(AssistRestoreModule module, ClassLoader loader) {
+    static void install(OplusAssistantModule module, ClassLoader loader) {
         try {
             Class<?> scene = Class.forName(SCENE, false, loader);
             Class<?> pkg = Class.forName("com.android.server.hans.OplusHansPackage", false, loader);
@@ -27,7 +27,7 @@ final class HansProcessFreezeHooks {
         }
     }
 
-    private static void installMethod(AssistRestoreModule module, Method method,
+    private static void installMethod(OplusAssistantModule module, Method method,
             Method getPackage, Method getUid, Object important) {
         method.setAccessible(true);
         module.hook(method)

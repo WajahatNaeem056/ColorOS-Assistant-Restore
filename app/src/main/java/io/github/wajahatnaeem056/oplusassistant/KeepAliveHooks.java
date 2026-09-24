@@ -58,14 +58,14 @@ final class KeepAliveHooks {
     private KeepAliveHooks() {
     }
 
-    static void install(AssistRestoreModule module, ClassLoader loader) {
+    static void install(OplusAssistantModule module, ClassLoader loader) {
         installBlocker(module, loader);
         installPublicObserver(module, loader);
         installStoppedObserver(module, loader, PM_INTERNAL);
         installStoppedObserver(module, loader, PM_BINDER);
     }
 
-    private static void installBlocker(AssistRestoreModule module, ClassLoader loader) {
+    private static void installBlocker(OplusAssistantModule module, ClassLoader loader) {
         try {
             Class<?> ams = Class.forName(AMS, false, loader);
             Method target = findTarget(ams);
@@ -114,7 +114,7 @@ final class KeepAliveHooks {
     }
 
     /** Log-only: the public entry point, where AOSP itself sets the stopped flag. */
-    private static void installPublicObserver(AssistRestoreModule module, ClassLoader loader) {
+    private static void installPublicObserver(OplusAssistantModule module, ClassLoader loader) {
         try {
             Class<?> ams = Class.forName(AMS, false, loader);
             Method target = null;
@@ -152,7 +152,7 @@ final class KeepAliveHooks {
     }
 
     /** Log-only: who marks a tracked package as stopped. */
-    private static void installStoppedObserver(AssistRestoreModule module, ClassLoader loader,
+    private static void installStoppedObserver(OplusAssistantModule module, ClassLoader loader,
             String className) {
         try {
             Class<?> cls = Class.forName(className, false, loader);
@@ -216,7 +216,7 @@ final class KeepAliveHooks {
         return AssistConfig.keepAliveApps(HookPrefs.get()).contains(packageName);
     }
 
-    private static void report(AssistRestoreModule module, String op, String packageName,
+    private static void report(OplusAssistantModule module, String op, String packageName,
             String detail, String action) {
         long now = System.currentTimeMillis();
         String key = op + "|" + packageName + "|" + detail;

@@ -43,7 +43,7 @@ final class SystemServerHooks {
     private SystemServerHooks() {
     }
 
-    static void install(AssistRestoreModule module, ClassLoader classLoader) {
+    static void install(OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Class<?> windowManagerExt = Class.forName(PHONE_WINDOW_MANAGER_EXT, true, classLoader);
             Method startSpeech =

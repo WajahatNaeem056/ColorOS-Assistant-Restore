@@ -22,7 +22,7 @@ final class GoogleAppHooks {
     private GoogleAppHooks() {
     }
 
-    static void install(AssistRestoreModule module, ClassLoader classLoader) {
+    static void install(OplusAssistantModule module, ClassLoader classLoader) {
         if (!AssistConfig.isEnabled(HookPrefs.get())) {
             module.logInfo("google_app_identity_spoof_skipped reason=module_disabled");
             return;

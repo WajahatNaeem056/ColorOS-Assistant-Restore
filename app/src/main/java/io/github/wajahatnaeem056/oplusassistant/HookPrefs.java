@@ -15,7 +15,7 @@ final class HookPrefs {
     private HookPrefs() {
     }
 
-    static void attach(AssistRestoreModule module) {
+    static void attach(OplusAssistantModule module) {
         try {
             prefs = module.getRemotePreferences(AssistConfig.PREFS);
             attached = true;

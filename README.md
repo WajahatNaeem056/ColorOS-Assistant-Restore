@@ -1,4 +1,6 @@
-# ColorOS AssistRestore
+# OplusAssistant
+
+> **Fork notice:** OplusAssistant is a fork of [Andrea-lyz/ColorOS-Assistant-Restore](https://github.com/Andrea-lyz/ColorOS-Assistant-Restore). The original module, the reverse-engineering work and the core hooks are by [Andrea-lyz](https://github.com/Andrea-lyz). See [Credits](#credits).
 
 
 [![libxposed API](https://img.shields.io/badge/libxposed-API%20102-brightgreen)](https://github.com/libxposed/api)
@@ -92,7 +94,7 @@ The platform allows only one voice-interaction service to be active at a time, s
 
 ## Troubleshooting
 
-The module logs under the `AssistRestore` tag; filter the LSPosed log by process. Common entries:
+The module logs under the `OplusAssistant` tag; filter the LSPosed log by process. Common entries:
 
 | Entry | Meaning |
 | --- | --- |
@@ -125,3 +127,16 @@ The APK is written to `app/build/outputs/apk/debug/app-debug.apk`. Add `--offlin
 ## Disclaimer
 
 This project is for study and research only. Changing how the system dispatches assistant requests carries risk; evaluate it yourself and keep a backup.
+
+## Credits
+
+- **Original project and author:** [Andrea-lyz](https://github.com/Andrea-lyz), creator of
+  [ColorOS-Assistant-Restore](https://github.com/Andrea-lyz/ColorOS-Assistant-Restore). The module concept, the
+  reverse-engineering of ColorOS's assistant dispatch, and the original hooks are their work.
+- **This fork:** maintained by [WajahatNaeem056](https://github.com/WajahatNaeem056). Changes include: renaming to
+  OplusAssistant, translating the UI, docs and release notes to English, the Keep Alive feature, and further fixes.
+- **[libxposed/api](https://github.com/libxposed/api):** the Xposed API this module is built on, vendored under
+  `libxposed-api/` and licensed under Apache License 2.0.
+
+> This fork was made from a repository that did not include a license file at the time of forking. If you are the
+> original author and want the credit changed or this fork removed, please open an issue.

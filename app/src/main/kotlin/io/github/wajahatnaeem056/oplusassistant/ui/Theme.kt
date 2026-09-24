@@ -11,7 +11,7 @@ import androidx.compose.runtime.Composable
  * Dynamic color is deliberately off so the preview looks the same on every device.
  */
 @Composable
-fun AssistRestoreTheme(
+fun OplusAssistantTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {

@@ -24,8 +24,8 @@ import io.github.libxposed.api.XposedModuleInterface;
  * <p>Independently of the assistant, {@code system_server} also blocks ColorOS' background
  * force-stop for user-chosen apps ({@link KeepAliveHooks}), so push notifications keep arriving.</p>
  */
-public final class AssistRestoreModule extends XposedModule {
-    static final String TAG = "AssistRestore";
+public final class OplusAssistantModule extends XposedModule {
+    static final String TAG = "OplusAssistant";
 
     private static final String SYSTEM_UI_PACKAGE = "com.android.systemui";
     private static final String LAUNCHER_PACKAGE = "com.android.launcher";

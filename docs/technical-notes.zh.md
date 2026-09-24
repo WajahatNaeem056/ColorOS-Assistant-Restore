@@ -1,4 +1,6 @@
-# ColorOS 唤语（AssistRestore）
+# ColorOS 唤语（OplusAssistant）
+
+> 本项目 fork 自 [Andrea-lyz/ColorOS-Assistant-Restore](https://github.com/Andrea-lyz/ColorOS-Assistant-Restore)，原作者为 [Andrea-lyz](https://github.com/Andrea-lyz)。
 
  LSPosed 模块，在 ColorOS 国内版系统上还原 AOSP 的默认数字助理行为：
 长按电源键、长按手势条、屏幕底部左右角落内滑，都改为唤醒系统当前设置的默认助理应用
@@ -198,19 +200,19 @@ gesture monitor 旁听后再决定是否交给手势条。于是就会出现“�
 ## 3. 工程结构
 
 ```
-LSP_AssistRestore/
-├─ app/                             模块 APK（`io.github.andrea_lyz.assistrestore`）
-│  ├─ src/main/java/io/github/andrea_lyz/assistrestore/
-│  │  ├─ AssistRestoreModule.java   入口，按进程与包名路由
+OplusAssistant/
+├─ app/                             模块 APK（`io.github.wajahatnaeem056.oplusassistant`）
+│  ├─ src/main/java/io/github/wajahatnaeem056/oplusassistant/
+│  │  ├─ OplusAssistantModule.java   入口，按进程与包名路由
 │  │  ├─ SystemUiHooks.java         SystemUI 三个 Hook
 │  │  ├─ SystemServerHooks.java     system_server 电源键派发
 │  │  ├─ CtsHooks.java              system_server 侧补齐 ContextualSearch 服务
 │  │  ├─ LauncherHooks.java         桌面侧按页面放开底角手势
 │  │  ├─ GoogleAppHooks.java        Google 应用进程内的机型伪装
 │  │  └─ Refl.java                  反射小工具
-│  ├─ src/main/kotlin/io/github/andrea_lyz/assistrestore/ui/
+│  ├─ src/main/kotlin/io/github/wajahatnaeem056/oplusassistant/ui/
 │  │  ├─ MainActivity.kt            设置界面的宿主 Activity
-│  │  ├─ AssistRestoreApp.kt        五个页面：入口 / 唤醒目标 / 自定义 / 高级 / 诊断
+│  │  ├─ OplusAssistantApp.kt        五个页面：入口 / 唤醒目标 / 自定义 / 高级 / 诊断
 │  │  ├─ AssistData.kt              读设备上的助理候选与当前默认助理
 │  │  └─ Theme.kt                   Material 3 主题
 │  ├─ src/main/res/values{,-night}/themes.xml   界面主题（日夜两套）
@@ -243,7 +245,7 @@ AndroidX 的版本固定在 `app/build.gradle.kts` 的 `resolutionStrategy` 里�
 ## 4. 构建
 
 ```powershell
-cd "D:\Users\Andrea-TB\Desktop\ColorOS Assistant\LSP_AssistRestore"
+cd path/to/OplusAssistant
 .\gradlew.bat --offline assembleDebug
 ```
 
@@ -267,7 +269,7 @@ cd "D:\Users\Andrea-TB\Desktop\ColorOS Assistant\LSP_AssistRestore"
    `navigation_mode=2`（手势导航），`assist_touch_gesture_enabled` 未设置；
    `cmd overlay lookup android android:bool/config_assistTouchGestureEnabledDefault` 返回 `true`，
    即底角手势默认开启，**不需要**再执行 `settings put`。
-4. 分别验证三条链路，并对照 LSPosed 日志（TAG `AssistRestore`）：
+4. 分别验证三条链路，并对照 LSPosed 日志（TAG `OplusAssistant`）：
    - 长按电源键 → 日志 `power_key_long_press startSource=1024 ...` → `power_key_haptic effect=0 reason=Speech - Long Press` → `assist_dispatch component=...`；
    - 长按手势条 → 日志 `gesture_handle_long_press invocationType=5` → `assist_dispatch ...`；
    - 底部角落内滑 → 日志 `assistant_availability available=true ...` 之后出现 `assist_dispatch ...`。
@@ -302,7 +304,7 @@ cd "D:\Users\Andrea-TB\Desktop\ColorOS Assistant\LSP_AssistRestore"
 
 | 现象 | 检查 |
 | --- | --- |
-| 日志里没有任何 `AssistRestore` 输出 | 模块是否启用；作用域是否包含 `system` 与 `com.android.systemui`；是否已重启 |
+| 日志里没有任何 `OplusAssistant` 输出 | 模块是否启用；作用域是否包含 `system` 与 `com.android.systemui`；是否已重启 |
 | 只有 SystemUI 的 Hook，电源键无效 | `system_server` 的 Hook 需要重启；确认 `hook_installed target=PhoneWindowManagerExtImpl.startSpeech` |
 | `assist_dispatch_skipped reason=no_assistant_configured` | 未设置默认助理，先绑定 `android.app.role.ASSISTANT` |
 | `assistant_availability available=false` | `assist_touch_gesture_enabled` 被设为 0，或当前非手势导航，或该版本真的启用了圈选搜索（国内固件不会） |
@@ -437,7 +439,7 @@ CN 固件的 SystemUI 里 CTS 那套是空实现（`OplusCircleToSearchManagerEx
 
 ## 9. English summary
 
-ColorOS 唤语 (AssistRestore) is a minimal libxposed API 102 module that restores AOSP default-assistant behaviour on
+ColorOS 唤语 (OplusAssistant) is a minimal libxposed API 102 module that restores AOSP default-assistant behaviour on
 China-region ColorOS builds. The build keeps the AOSP assistant stack intact and only diverts each
 entry point, so the module reconnects those four diversion points: the power-key funnel
 (`PhoneWindowManagerExtImpl.startSpeech` in `system_server`), the gesture-handle long press

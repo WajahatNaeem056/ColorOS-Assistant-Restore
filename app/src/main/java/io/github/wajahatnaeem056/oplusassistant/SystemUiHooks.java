@@ -135,7 +135,7 @@ final class SystemUiHooks {
     private SystemUiHooks() {
     }
 
-    static void install(AssistRestoreModule module, ClassLoader classLoader) {
+    static void install(OplusAssistantModule module, ClassLoader classLoader) {
         AssistPipeline pipeline = resolveAssistPipeline(module, classLoader);
         CtsPipeline cts = resolveCtsPipeline(module, classLoader);
         installAssistDispatch(module, classLoader, pipeline, cts);
@@ -191,7 +191,7 @@ final class SystemUiHooks {
     }
 
     private static CtsPipeline resolveCtsPipeline(
-            AssistRestoreModule module, ClassLoader classLoader) {
+            OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Method getService = Class.forName("android.os.ServiceManager", false, classLoader)
                     .getMethod("getService", String.class);
@@ -262,7 +262,7 @@ final class SystemUiHooks {
         }
 
         /** @return the component the request was sent to, or {@code null} when none is configured */
-        Object dispatch(AssistRestoreModule module, Object assistManager, Bundle args)
+        Object dispatch(OplusAssistantModule module, Object assistManager, Bundle args)
                 throws Throwable {
             Object assistInfo = getAssistInfo.invoke(assistManager);
             if (assistInfo == null) {
@@ -283,7 +283,7 @@ final class SystemUiHooks {
          * that ships a voice interaction service gets a real assist session even while the system
          * default assistant stays untouched.
          */
-        Object dispatchTo(AssistRestoreModule module, Object assistManager, Bundle args,
+        Object dispatchTo(OplusAssistantModule module, Object assistManager, Bundle args,
                 ComponentName component, boolean isService) throws Throwable {
             module.logInfo("assist_dispatch component=" + component
                     + " isService=" + isService
@@ -295,7 +295,7 @@ final class SystemUiHooks {
     }
 
     private static AssistPipeline resolveAssistPipeline(
-            AssistRestoreModule module, ClassLoader classLoader) {
+            OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Class<?> assistManager = Class.forName(ASSIST_MANAGER, true, classLoader);
             Method startAssistInternal;
@@ -329,7 +329,7 @@ final class SystemUiHooks {
     // ---------------------------------------------------------------------------------------------
 
     private static void installAssistDispatch(
-            AssistRestoreModule module, ClassLoader classLoader, AssistPipeline pipeline,
+            OplusAssistantModule module, ClassLoader classLoader, AssistPipeline pipeline,
             CtsPipeline cts) {
         if (pipeline == null) {
             module.logError("hook_skipped target=" + ASSIST_MANAGER + ".startAssist"
@@ -451,7 +451,7 @@ final class SystemUiHooks {
     // ---------------------------------------------------------------------------------------------
 
     private static void installAssistantAvailability(
-            AssistRestoreModule module, ClassLoader classLoader) {
+            OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Class<?> navBarUtils = Class.forName(NAV_BAR_UTILS, true, classLoader);
             Method isAssistantAvailable =
@@ -501,7 +501,7 @@ final class SystemUiHooks {
      * @return the availability to report, or {@code null} to fall back to the original method
      */
     private static Boolean evaluateAssistantAvailable(
-            AssistRestoreModule module,
+            OplusAssistantModule module,
             ClassLoader classLoader,
             Context context,
             int navBarMode,
@@ -585,7 +585,7 @@ final class SystemUiHooks {
     // ---------------------------------------------------------------------------------------------
 
     private static void installGestureHandleLongPress(
-            AssistRestoreModule module, ClassLoader classLoader, AssistPipeline pipeline,
+            OplusAssistantModule module, ClassLoader classLoader, AssistPipeline pipeline,
             CtsPipeline cts) {
         if (pipeline == null) {
             module.logError("hook_skipped target=" + SPEED_CHASSIST + ".onLongPressed"
@@ -624,7 +624,7 @@ final class SystemUiHooks {
      * configured assistant instead of the screen-recognition service.
      */
     private static void installOcrScreenHandleLongPress(
-            AssistRestoreModule module, ClassLoader classLoader, AssistPipeline pipeline,
+            OplusAssistantModule module, ClassLoader classLoader, AssistPipeline pipeline,
             CtsPipeline cts) {
         if (pipeline == null) {
             module.logError("hook_skipped target=" + OCR_SCREEN_HANDLER + ".onLongPressed"
@@ -734,7 +734,7 @@ final class SystemUiHooks {
      * touches - the OEM press animation, haptics and long-press timing all stay in place.</p>
      */
     private static void installHiddenGestureBarHandleTouch(
-            AssistRestoreModule module, ClassLoader classLoader) {
+            OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Class<?> navBarUtils = Class.forName(NAV_BAR_UTILS, true, classLoader);
             Method isSideGestureBarHide = navBarUtils.getDeclaredMethod("isSideGestureBarHide");
@@ -809,7 +809,7 @@ final class SystemUiHooks {
      * only when the result differs from what is already applied.</p>
      */
     private static void installHandleTouchRegion(
-            AssistRestoreModule module, ClassLoader classLoader) {
+            OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Class<?> handle = Class.forName(SIDE_GESTURE_HANDLE, true, classLoader);
             Method onLayout = handle.getMethod(
@@ -842,7 +842,7 @@ final class SystemUiHooks {
      * remaining invisible on screen.</p>
      */
     private static void installHiddenBarWindowHooks(
-            AssistRestoreModule module, ClassLoader classLoader) {
+            OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Class<?> bar = Class.forName(NAVIGATION_BAR, true, classLoader);
             Method forRotation = bar.getMethod(
@@ -894,7 +894,7 @@ final class SystemUiHooks {
     }
 
     /** Keeps the window parameters built for a hidden bar inside input dispatch. */
-    private static void patchCreatedWindowAlpha(AssistRestoreModule module, Object params) {
+    private static void patchCreatedWindowAlpha(OplusAssistantModule module, Object params) {
         if (!handleOwnedByModule() || !(params instanceof WindowManager.LayoutParams)) {
             return;
         }
@@ -947,7 +947,7 @@ final class SystemUiHooks {
     }
 
     /** Applies, refreshes or clears the navigation bar's touchable region. */
-    private static void applyHandleTouchRegion(AssistRestoreModule module, View handle) {
+    private static void applyHandleTouchRegion(OplusAssistantModule module, View handle) {
         try {
             Region desired = handleRegionFor(module, handle);
             boolean alphaTouched = keepHiddenWindowReachable(module, handle, desired != null);
@@ -994,7 +994,7 @@ final class SystemUiHooks {
      * @return {@code true} when the window alpha was scheduled to change
      */
     private static boolean keepHiddenWindowReachable(
-            AssistRestoreModule module, View handle, boolean wantTouchable) {
+            OplusAssistantModule module, View handle, boolean wantTouchable) {
         try {
             View owner = windowParamOwner(handle);
             if (owner == null || !(owner.getLayoutParams() instanceof WindowManager.LayoutParams)) {
@@ -1056,7 +1056,7 @@ final class SystemUiHooks {
      * @return the region the navigation-bar window should own, or {@code null} when the OEM default
      *         (an empty region, i.e. the bar area stays with the page) is the right answer
      */
-    private static Region handleRegionFor(AssistRestoreModule module, View handle) {
+    private static Region handleRegionFor(OplusAssistantModule module, View handle) {
         if (!handleOwnedByModule()) {
             // Not taken over: the OEM screen recognition needs the press to reach the page, exactly
             // as it does today.
@@ -1143,7 +1143,7 @@ final class SystemUiHooks {
     }
 
     /** Logs why the bar area is left to the page, once per reason. */
-    private static Region skipRegion(AssistRestoreModule module, String reason) {
+    private static Region skipRegion(OplusAssistantModule module, String reason) {
         if (!reason.equals(lastRegionSkipReason)) {
             lastRegionSkipReason = reason;
             module.logInfo("handle_touch_region_skipped reason=" + reason);
@@ -1173,7 +1173,7 @@ final class SystemUiHooks {
      *         {@code chain.proceed()} simply do nothing in that case)
      */
     private static boolean dispatchGestureHandleLongPress(
-            AssistRestoreModule module,
+            OplusAssistantModule module,
             ClassLoader classLoader,
             AssistPipeline pipeline,
             Class<?> assistManagerClass,
@@ -1264,7 +1264,7 @@ final class SystemUiHooks {
      *         navigation-handle gesture is expected to become Circle to Search
      */
     private static boolean isGoogleAssistantConfigured(
-            AssistRestoreModule module, ClassLoader classLoader, Context context) {
+            OplusAssistantModule module, ClassLoader classLoader, Context context) {
         try {
             Class<?> assistUtilsClass = Class.forName(ASSIST_UTILS, false, classLoader);
             Constructor<?> constructor = assistUtilsClass.getConstructor(Context.class);
@@ -1306,7 +1306,7 @@ final class SystemUiHooks {
      * screen-recognition key when the build supports it, otherwise in the CUI key. Only an explicit
      * {@code 0} disables the gesture; an unset key keeps the pre-existing behaviour.
      */
-    private static boolean isHandleWakeSwitchOff(AssistRestoreModule module, Context context) {
+    private static boolean isHandleWakeSwitchOff(OplusAssistantModule module, Context context) {
         // Settings writes both keys with user -2 (all users), so the calling-user lookup is enough.
         ContentResolver resolver = context.getContentResolver();
         int ocr = Settings.Secure.getInt(resolver, KEY_HANDLE_WAKE_OCR, -1);
@@ -1341,7 +1341,7 @@ final class SystemUiHooks {
     }
 
     /** Runs the Circle to Search entry point; {@code false} tells the caller to fall back. */
-    private static boolean triggerCircleToSearch(AssistRestoreModule module, CtsPipeline cts) {
+    private static boolean triggerCircleToSearch(OplusAssistantModule module, CtsPipeline cts) {
         if (cts == null) {
             return false;
         }
@@ -1388,7 +1388,7 @@ final class SystemUiHooks {
 
     /** Starts the app pinned to {@code entry}; {@code false} tells the caller to fall back. */
     private static boolean startConfiguredTarget(
-            AssistRestoreModule module, Context context, String entry, AssistPipeline pipeline,
+            OplusAssistantModule module, Context context, String entry, AssistPipeline pipeline,
             Object assistManager) {
         String packageName = AssistConfig.targetPackage(HookPrefs.get(), entry);
         if (context == null || packageName.isEmpty()) {
@@ -1421,7 +1421,7 @@ final class SystemUiHooks {
     }
 
     private static Object lookupAssistManager(
-            AssistRestoreModule module, ClassLoader classLoader, Class<?> assistManagerClass) {
+            OplusAssistantModule module, ClassLoader classLoader, Class<?> assistManagerClass) {
         try {
             Class<?> dependency = Class.forName(DEPENDENCY, false, classLoader);
             Object container = dependency.getField("sDependency").get(null);

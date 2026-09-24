@@ -228,9 +228,9 @@ jobs:
           set -euo pipefail
           NOTES_FILE="${{ runner.temp }}/release_notes.md"
           {
-            echo "## ColorOS 唤语 v${NEW_NAME} (versionCode ${NEW_CODE})"
+            echo "## OplusAssistant v${NEW_NAME} (versionCode ${NEW_CODE})"
             echo
-            echo "在 ColorOS 国内版上还原 AOSP 数字助理行为：长按电源键、长按手势条、底角内滑各自独立唤醒所选助理。"
+            echo "Restores AOSP digital-assistant behaviour on China-region ColorOS builds: hold power button, hold gesture handle, and corner swipe each wake the selected assistant independently."
             echo
             if [[ -n "${USER_NOTES}" ]]; then
               echo "${USER_NOTES}"
@@ -250,7 +250,7 @@ jobs:
             echo
             echo "### Requirements"
             echo
-            echo "ColorOS 国内版固件，KernelSU 或 Magisk，LSPosed 等 libxposed API 102 框架。作用域需勾选 system、com.android.systemui、com.android.launcher、com.google.android.googlequicksearchbox。"
+            echo "China-region ColorOS firmware, root via KernelSU or Magisk, and a libxposed API 102 framework such as LSPosed. Enable all four scopes: system, com.android.systemui, com.android.launcher, com.google.android.googlequicksearchbox."
             echo
             echo "### Verification"
             echo
@@ -341,7 +341,7 @@ jobs:
             "${{ steps.stage.outputs.release_sha }}" \
             --repo "${LSP_REPOSITORY}" \
             --verify-tag \
-            --title "ColorOS 唤语 ${LSP_TAG}" \
+            --title "OplusAssistant ${LSP_TAG}" \
             --notes-file "${{ steps.notes.outputs.notes_file }}"
 
       - name: Verify LSP mirror assets

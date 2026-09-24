@@ -231,7 +231,7 @@ private const val ROUTE_KEEP_ALIVE = "keepalive"
 /* --------------------------------------------------------------------------------------------- */
 
 @Composable
-fun AssistRestoreApp() {
+fun OplusAssistantApp() {
     val context = LocalContext.current
     var snapshot by remember { mutableStateOf(AssistantSnapshot.load(context)) }
     val store = remember { SettingsStore(context) }

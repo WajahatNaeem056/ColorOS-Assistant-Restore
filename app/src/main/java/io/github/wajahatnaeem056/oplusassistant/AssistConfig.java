@@ -17,7 +17,7 @@ import java.util.Set;
  */
 public final class AssistConfig {
     /** RemotePreferences group name. */
-    public static final String PREFS = "assist_restore";
+    public static final String PREFS = "oplus_assistant";
 
     /* Entry identifiers. */
     public static final String ENTRY_POWER = "power";

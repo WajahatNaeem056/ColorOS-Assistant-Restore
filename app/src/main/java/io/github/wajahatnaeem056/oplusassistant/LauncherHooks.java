@@ -52,7 +52,7 @@ final class LauncherHooks {
     private LauncherHooks() {
     }
 
-    static void install(AssistRestoreModule module, ClassLoader classLoader) {
+    static void install(OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Class<?> contract = Class.forName(QUICK_STEP_CONTRACT, true, classLoader);
             Method isAssistantGestureDisabled =

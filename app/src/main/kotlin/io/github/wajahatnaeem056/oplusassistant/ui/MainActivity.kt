@@ -17,8 +17,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
-            AssistRestoreTheme {
-                AssistRestoreApp()
+            OplusAssistantTheme {
+                OplusAssistantApp()
             }
         }
     }

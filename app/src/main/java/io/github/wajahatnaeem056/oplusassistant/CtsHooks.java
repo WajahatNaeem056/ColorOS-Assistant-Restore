@@ -43,7 +43,7 @@ final class CtsHooks {
     private CtsHooks() {
     }
 
-    static void install(AssistRestoreModule module, ClassLoader classLoader) {
+    static void install(OplusAssistantModule module, ClassLoader classLoader) {
         int packageNameResId = resolvePackageNameResId(module, classLoader);
         installDeviceHasConfigString(module, classLoader, packageNameResId);
         installContextualSearchPackageName(module, classLoader);
@@ -52,7 +52,7 @@ final class CtsHooks {
     }
 
     /** Reads {@code com.android.internal.R.string.config_defaultContextualSearchPackageName}. */
-    private static int resolvePackageNameResId(AssistRestoreModule module, ClassLoader classLoader) {
+    private static int resolvePackageNameResId(OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Class<?> rString = Class.forName("com.android.internal.R$string", true, classLoader);
             int id = rString.getField("config_defaultContextualSearchPackageName").getInt(null);
@@ -65,7 +65,7 @@ final class CtsHooks {
     }
 
     private static void installDeviceHasConfigString(
-            AssistRestoreModule module, ClassLoader classLoader, int packageNameResId) {
+            OplusAssistantModule module, ClassLoader classLoader, int packageNameResId) {
         try {
             Class<?> systemServer = Class.forName(SYSTEM_SERVER, true, classLoader);
             Method method = method(systemServer, "deviceHasConfigString", Context.class, int.class);
@@ -92,7 +92,7 @@ final class CtsHooks {
     }
 
     private static void installContextualSearchPackageName(
-            AssistRestoreModule module, ClassLoader classLoader) {
+            OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Class<?> service = Class.forName(CTS_SERVICE, true, classLoader);
             Method method = method(service, "getContextualSearchPackageName");
@@ -113,7 +113,7 @@ final class CtsHooks {
     }
 
     private static void installPermissionBypass(
-            AssistRestoreModule module, ClassLoader classLoader) {
+            OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Class<?> service = Class.forName(CTS_SERVICE, true, classLoader);
             Method method = method(service, "enforcePermission", String.class);
@@ -145,7 +145,7 @@ final class CtsHooks {
      * way a platform caller would be.
      */
     private static void installStartContextualSearch(
-            AssistRestoreModule module, ClassLoader classLoader) {
+            OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Class<?> service = Class.forName(CTS_SERVICE, true, classLoader);
             int hooked = hookStartContextualSearch(module, service);
@@ -164,7 +164,7 @@ final class CtsHooks {
         }
     }
 
-    private static int hookStartContextualSearch(AssistRestoreModule module, Class<?> owner) {
+    private static int hookStartContextualSearch(OplusAssistantModule module, Class<?> owner) {
         int count = 0;
         for (Method candidate : owner.getDeclaredMethods()) {
             if (!"startContextualSearch".equals(candidate.getName())) {
@@ -214,7 +214,7 @@ final class CtsHooks {
      * @return {@code true} for {@code system} or for SystemUI, the two callers that legitimately
      *         drive this module's contextual-search entry point
      */
-    static boolean isTrustedCaller(AssistRestoreModule module) {
+    static boolean isTrustedCaller(OplusAssistantModule module) {
         int uid = Binder.getCallingUid();
         if (uid == Process.SYSTEM_UID) {
             return true;

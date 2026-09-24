@@ -28,7 +28,7 @@ Each entry has its own wake target and can be turned off individually. Beyond th
 
 ## Requirements
 
-- A China-region ColorOS build. Verified on ColorOS 16 / `V16.1.0` / PJZ110 / `regionmark=CN`.
+- A China-region ColorOS build. Verified on ColorOS 16 And 17`V16.1.0` /`regionmark=CN`.
 - Root via KernelSU, Magisk, or similar.
 - A framework that supports libxposed API 102, such as LSPosed.
 
@@ -134,6 +134,3 @@ This project is for study and research only. Changing how the system dispatches 
   OplusAssistant, translating the UI, docs and release notes to English, the Keep Alive feature, and further fixes.
 - **[libxposed/api](https://github.com/libxposed/api):** the Xposed API this module is built on, vendored under
   `libxposed-api/` and licensed under Apache License 2.0.
-
-> This fork was made from a repository that did not include a license file at the time of forking. If you are the
-> original author and want the credit changed or this fork removed, please open an issue.

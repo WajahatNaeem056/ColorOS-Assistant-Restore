@@ -92,9 +92,6 @@ final class SystemUiHooks {
     private static final String DEPENDENCY = "com.android.systemui.Dependency";
     private static final String INTERNAL_BOOL_RES = "com.android.internal.R$bool";
     private static final String CTS_INTERFACE = "android.app.contextualsearch.IContextualSearchManager";
-    /** Android 17 added a config argument to the contextual-search entry point. */
-    private static final String CTS_CONFIG =
-            "android.app.contextualsearch.ContextualSearchConfig";
 
     private static final String ASSIST_TOUCH_GESTURE_ENABLED = "assist_touch_gesture_enabled";
     private static final String EXTRA_INVOCATION_TYPE = "invocation_type";
@@ -167,15 +164,19 @@ final class SystemUiHooks {
         private final Method getService;
         private final Method asInterface;
         private final Method startContextualSearch;
-        /** {@code ContextualSearchConfig.DEFAULT_CONFIG} on builds whose AIDL takes a config. */
-        private final Object defaultConfig;
+        /**
+         * Android 17 changed the AIDL to {@code startContextualSearch(int, ContextualSearchConfig)}.
+         * A {@code null} config is accepted by the service (it null-checks it), so it is passed as
+         * such and the service picks its defaults.
+         */
+        private final boolean takesConfig;
 
         private CtsPipeline(Method getService, Method asInterface, Method startContextualSearch,
-                Object defaultConfig) {
+                boolean takesConfig) {
             this.getService = getService;
             this.asInterface = asInterface;
             this.startContextualSearch = startContextualSearch;
-            this.defaultConfig = defaultConfig;
+            this.takesConfig = takesConfig;
         }
 
         /** @return {@code true} when the service accepted the request */
@@ -188,9 +189,8 @@ final class SystemUiHooks {
             if (service == null) {
                 return false;
             }
-            if (defaultConfig != null) {
-                startContextualSearch.invoke(
-                        service, CtsHooks.CONTEXTUAL_SEARCH_ENTRYPOINT, defaultConfig);
+            if (takesConfig) {
+                startContextualSearch.invoke(service, CtsHooks.CONTEXTUAL_SEARCH_ENTRYPOINT, null);
             } else {
                 startContextualSearch.invoke(service, CtsHooks.CONTEXTUAL_SEARCH_ENTRYPOINT);
             }
@@ -206,22 +206,21 @@ final class SystemUiHooks {
             Class<?> iface = Class.forName(CTS_INTERFACE, false, classLoader);
             Class<?> stub = Class.forName(CTS_INTERFACE + "$Stub", false, classLoader);
             Method asInterface = stub.getMethod("asInterface", IBinder.class);
-            // ColorOS 17 (Android 17) passes a ContextualSearchConfig alongside the entry point;
-            // ColorOS 16 carried the entry point alone.
-            Method startContextualSearch = null;
-            Object defaultConfig = null;
-            Class<?> configClass = Refl.load(classLoader, CTS_CONFIG);
-            if (configClass != null) {
-                startContextualSearch =
-                        Refl.method(iface, "startContextualSearch", int.class, configClass);
-                if (startContextualSearch != null) {
-                    defaultConfig = configClass.getField("DEFAULT_CONFIG").get(null);
-                }
-            }
-            if (startContextualSearch == null) {
+            Method startContextualSearch;
+            boolean takesConfig;
+            try {
+                Class<?> config = Class.forName(
+                        "android.app.contextualsearch.ContextualSearchConfig", false, classLoader);
+                // Android 17 / ColorOS 17
+                startContextualSearch = iface.getMethod("startContextualSearch", int.class, config);
+                takesConfig = true;
+            } catch (ClassNotFoundException | NoSuchMethodException e) {
+                // Android 16 / ColorOS 16 and older
                 startContextualSearch = iface.getMethod("startContextualSearch", int.class);
+                takesConfig = false;
             }
-            return new CtsPipeline(getService, asInterface, startContextualSearch, defaultConfig);
+            module.logInfo("cts_pipeline_resolved takesConfig=" + takesConfig);
+            return new CtsPipeline(getService, asInterface, startContextualSearch, takesConfig);
         } catch (Throwable t) {
             module.logError("circle_to_search_pipeline_failed", t);
             return null;
@@ -241,15 +240,45 @@ final class SystemUiHooks {
         private final Method getAssistInfo;
         private final Method getVoiceInteractorComponentName;
         private final Method startAssistInternal;
-        /** {@code AssistManager.mContext}; the Android 17 overload takes it as an argument. */
+        /**
+         * Android 17 / ColorOS 17 added a leading {@link Context} parameter:
+         * {@code startAssistInternal(Context, Bundle, ComponentName, boolean)}. Older builds have
+         * {@code startAssistInternal(Bundle, ComponentName, boolean)}.
+         */
+        private final boolean startAssistInternalTakesContext;
+        /** {@code AssistManager.mContext}; only needed for the Context-taking variant. */
         private final Field contextField;
 
         private AssistPipeline(Method getAssistInfo, Method getVoiceInteractorComponentName,
-                Method startAssistInternal, Field contextField) {
+                Method startAssistInternal, boolean startAssistInternalTakesContext,
+                Field contextField) {
             this.getAssistInfo = getAssistInfo;
             this.getVoiceInteractorComponentName = getVoiceInteractorComponentName;
             this.startAssistInternal = startAssistInternal;
+            this.startAssistInternalTakesContext = startAssistInternalTakesContext;
             this.contextField = contextField;
+        }
+
+        private void invokeStartAssistInternal(Object assistManager, Bundle args,
+                Object component, boolean isService) throws Throwable {
+            if (startAssistInternalTakesContext) {
+                Object context = contextField != null ? contextField.get(assistManager) : null;
+                startAssistInternal.invoke(assistManager, context, args, component, isService);
+            } else {
+                startAssistInternal.invoke(assistManager, args, component, isService);
+            }
+        }
+
+        private Context contextOf(Object assistManager) {
+            if (contextField == null) {
+                return null;
+            }
+            try {
+                Object value = contextField.get(assistManager);
+                return value instanceof Context ? (Context) value : null;
+            } catch (Throwable t) {
+                return null;
+            }
         }
 
         /** @return the component the request was sent to, or {@code null} when none is configured */
@@ -277,8 +306,8 @@ final class SystemUiHooks {
                     + " isService=" + isService
                     + " voiceInteractor=" + voiceInteractor
                     + " invocationType=" + args.getInt(EXTRA_INVOCATION_TYPE, 0));
-            invokeStartAssistInternal(module, assistManager, args, assistComponent, isService);
-            return assistComponent;
+            invokeStartAssistInternal(assistManager, args, assistInfo, isService);
+            return assistInfo;
         }
 
         /**
@@ -292,38 +321,8 @@ final class SystemUiHooks {
                     + " isService=" + isService
                     + " invocationType=" + args.getInt(EXTRA_INVOCATION_TYPE, 0)
                     + " pinned=true");
-            invokeStartAssistInternal(module, assistManager, args, component, isService);
+            invokeStartAssistInternal(assistManager, args, component, isService);
             return component;
-        }
-
-        /**
-         * Android 17 added the display {@code Context} in front of the assist arguments; the
-         * argument list is matched at resolve time so both firmware generations work.
-         */
-        private void invokeStartAssistInternal(OplusAssistantModule module, Object assistManager,
-                Bundle args, Object component, boolean isService) throws Throwable {
-            if (startAssistInternal.getParameterCount() == 4) {
-                Context context = contextOf(assistManager);
-                if (context == null) {
-                    module.logWarn("assist_dispatch_skipped reason=no_context");
-                    return;
-                }
-                startAssistInternal.invoke(assistManager, context, args, component, isService);
-                return;
-            }
-            startAssistInternal.invoke(assistManager, args, component, isService);
-        }
-
-        private Context contextOf(Object assistManager) {
-            if (contextField == null) {
-                return null;
-            }
-            try {
-                Object value = contextField.get(assistManager);
-                return value instanceof Context ? (Context) value : null;
-            } catch (Throwable t) {
-                return null;
-            }
         }
     }
 
@@ -331,49 +330,30 @@ final class SystemUiHooks {
             OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Class<?> assistManager = Class.forName(ASSIST_MANAGER, true, classLoader);
-            // ColorOS 17 (Android 17) hands the display context to the dispatch method; ColorOS 16
-            // carried the assist bundle alone.
-            Method startAssistInternal = Refl.method(assistManager, "startAssistInternal",
-                    Context.class, Bundle.class, ComponentName.class, boolean.class);
-            if (startAssistInternal == null) {
+            Method startAssistInternal;
+            boolean takesContext;
+            Field contextField = null;
+            try {
+                // Android 17 / ColorOS 17
+                startAssistInternal = assistManager.getMethod("startAssistInternal",
+                        Context.class, Bundle.class, ComponentName.class, boolean.class);
+                takesContext = true;
+                contextField = assistManager.getField("mContext");
+            } catch (NoSuchMethodException e) {
+                // Android 16 / ColorOS 16 and older
                 startAssistInternal = assistManager.getMethod("startAssistInternal",
                         Bundle.class, ComponentName.class, boolean.class);
+                takesContext = false;
             }
+            module.logInfo("assist_pipeline_resolved startAssistInternal takesContext=" + takesContext);
             return new AssistPipeline(
                     assistManager.getMethod("getAssistInfo"),
                     assistManager.getMethod("getVoiceInteractorComponentName"),
-                    startAssistInternal,
-                    findContextField(assistManager));
+                    startAssistInternal, takesContext, contextField);
         } catch (Throwable t) {
             module.logError("assist_pipeline_resolve_failed", t);
             return null;
         }
-    }
-
-    /** {@code AssistManager.mContext}, falling back to the first {@code Context} field. */
-    private static Field findContextField(Class<?> assistManagerClass) {
-        for (Class<?> type = assistManagerClass; type != null && type != Object.class;
-                type = type.getSuperclass()) {
-            try {
-                Field named = type.getDeclaredField("mContext");
-                if (named.getType() == Context.class) {
-                    named.setAccessible(true);
-                    return named;
-                }
-            } catch (Throwable ignored) {
-                // Keep walking the hierarchy.
-            }
-        }
-        for (Class<?> type = assistManagerClass; type != null && type != Object.class;
-                type = type.getSuperclass()) {
-            for (Field field : type.getDeclaredFields()) {
-                if (field.getType() == Context.class) {
-                    field.setAccessible(true);
-                    return field;
-                }
-            }
-        }
-        return null;
     }
 
     /**
@@ -466,13 +446,13 @@ final class SystemUiHooks {
         }
         try {
             Class<?> assistManager = Class.forName(ASSIST_MANAGER, true, classLoader);
-            // D8 renames the dispatch entry to {@code startAssist$1} when it keeps the interface
-            // method alive next to it, which is what the ColorOS 17 build ships.
-            Method startAssist = Refl.method(assistManager, "startAssist$1", Bundle.class);
-            if (startAssist != null) {
-                startAssist.setAccessible(true);
-            } else {
+            Method startAssist;
+            try {
                 startAssist = assistManager.getMethod("startAssist", Bundle.class);
+            } catch (NoSuchMethodException e) {
+                // Android 17 / ColorOS 17: Kotlin conversion renamed it to startAssist$1
+                startAssist = assistManager.getMethod("startAssist$1", Bundle.class);
+                module.logInfo("assist_dispatch_hook using renamed method startAssist$1");
             }
             Field overrideInvocationTypes = assistManager.getField("mAssistOverrideInvocationTypes");
             Field activityManager = assistManager.getField("mActivityManager");

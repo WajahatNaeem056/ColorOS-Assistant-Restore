@@ -12,6 +12,7 @@ import android.os.IBinder;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.View;
+import android.view.MotionEvent;
 import android.view.ViewParent;
 import android.view.WindowInsets;
 import android.view.WindowManager;
@@ -69,6 +70,8 @@ final class SystemUiHooks {
     private static final String FEATURE_OPTION = "com.oplusos.systemui.common.feature.FeatureOption";
     private static final String CUSTOMIZE_FEATURE_OPTION =
             "com.oplusos.systemui.common.feature.CustomizeFeatureOption";
+    /** Second half of the ColorOS 17 dispatch gate: {@code isExpRegion() || this flag}. */
+    private static final String OP_UTILS = "com.oplusos.systemui.util.OpUtils";
     private static final String SPEED_CHASSIST =
             "com.oplus.systemui.navigationbar.gesture.otherbusiness.SpeedChassistMainBusiness";
     /**
@@ -89,10 +92,16 @@ final class SystemUiHooks {
     private static final String DEPENDENCY = "com.android.systemui.Dependency";
     private static final String INTERNAL_BOOL_RES = "com.android.internal.R$bool";
     private static final String CTS_INTERFACE = "android.app.contextualsearch.IContextualSearchManager";
+    /** Android 17 added a config argument to the contextual-search entry point. */
+    private static final String CTS_CONFIG =
+            "android.app.contextualsearch.ContextualSearchConfig";
 
     private static final String ASSIST_TOUCH_GESTURE_ENABLED = "assist_touch_gesture_enabled";
     private static final String EXTRA_INVOCATION_TYPE = "invocation_type";
     private static final String SETTING_ASSISTANT = "assistant";
+    private static final String SETTING_VOICE_INTERACTION_SERVICE = "voice_interaction_service";
+    private static final String ACTION_VOICE_INTERACTION_SERVICE =
+            "android.service.voice.VoiceInteractionService";
 
     /**
      * The China-only nav-bar switch "长按手势指示条唤醒小布识屏" ({@code gesture_side_wake_cui} in
@@ -136,12 +145,14 @@ final class SystemUiHooks {
     }
 
     static void install(OplusAssistantModule module, ClassLoader classLoader) {
+        ensureVoiceInteractionService(module, TargetIntents.appContext());
         AssistPipeline pipeline = resolveAssistPipeline(module, classLoader);
         CtsPipeline cts = resolveCtsPipeline(module, classLoader);
         installAssistDispatch(module, classLoader, pipeline, cts);
         installAssistantAvailability(module, classLoader);
         installGestureHandleLongPress(module, classLoader, pipeline, cts);
         installOcrScreenHandleLongPress(module, classLoader, pipeline, cts);
+        installHandlePressAvailability(module, classLoader);
         installHiddenGestureBarHandleTouch(module, classLoader);
         installHandleTouchRegion(module, classLoader);
     }
@@ -156,19 +167,15 @@ final class SystemUiHooks {
         private final Method getService;
         private final Method asInterface;
         private final Method startContextualSearch;
-        /**
-         * Android 17 changed the AIDL to {@code startContextualSearch(int, ContextualSearchConfig)}.
-         * A {@code null} config is accepted by the service (it null-checks it), so it is passed as
-         * such and the service picks its defaults.
-         */
-        private final boolean takesConfig;
+        /** {@code ContextualSearchConfig.DEFAULT_CONFIG} on builds whose AIDL takes a config. */
+        private final Object defaultConfig;
 
         private CtsPipeline(Method getService, Method asInterface, Method startContextualSearch,
-                boolean takesConfig) {
+                Object defaultConfig) {
             this.getService = getService;
             this.asInterface = asInterface;
             this.startContextualSearch = startContextualSearch;
-            this.takesConfig = takesConfig;
+            this.defaultConfig = defaultConfig;
         }
 
         /** @return {@code true} when the service accepted the request */
@@ -181,8 +188,9 @@ final class SystemUiHooks {
             if (service == null) {
                 return false;
             }
-            if (takesConfig) {
-                startContextualSearch.invoke(service, CtsHooks.CONTEXTUAL_SEARCH_ENTRYPOINT, null);
+            if (defaultConfig != null) {
+                startContextualSearch.invoke(
+                        service, CtsHooks.CONTEXTUAL_SEARCH_ENTRYPOINT, defaultConfig);
             } else {
                 startContextualSearch.invoke(service, CtsHooks.CONTEXTUAL_SEARCH_ENTRYPOINT);
             }
@@ -198,21 +206,22 @@ final class SystemUiHooks {
             Class<?> iface = Class.forName(CTS_INTERFACE, false, classLoader);
             Class<?> stub = Class.forName(CTS_INTERFACE + "$Stub", false, classLoader);
             Method asInterface = stub.getMethod("asInterface", IBinder.class);
-            Method startContextualSearch;
-            boolean takesConfig;
-            try {
-                Class<?> config = Class.forName(
-                        "android.app.contextualsearch.ContextualSearchConfig", false, classLoader);
-                // Android 17 / ColorOS 17
-                startContextualSearch = iface.getMethod("startContextualSearch", int.class, config);
-                takesConfig = true;
-            } catch (ClassNotFoundException | NoSuchMethodException e) {
-                // Android 16 / ColorOS 16 and older
-                startContextualSearch = iface.getMethod("startContextualSearch", int.class);
-                takesConfig = false;
+            // ColorOS 17 (Android 17) passes a ContextualSearchConfig alongside the entry point;
+            // ColorOS 16 carried the entry point alone.
+            Method startContextualSearch = null;
+            Object defaultConfig = null;
+            Class<?> configClass = Refl.load(classLoader, CTS_CONFIG);
+            if (configClass != null) {
+                startContextualSearch =
+                        Refl.method(iface, "startContextualSearch", int.class, configClass);
+                if (startContextualSearch != null) {
+                    defaultConfig = configClass.getField("DEFAULT_CONFIG").get(null);
+                }
             }
-            module.logInfo("cts_pipeline_resolved takesConfig=" + takesConfig);
-            return new CtsPipeline(getService, asInterface, startContextualSearch, takesConfig);
+            if (startContextualSearch == null) {
+                startContextualSearch = iface.getMethod("startContextualSearch", int.class);
+            }
+            return new CtsPipeline(getService, asInterface, startContextualSearch, defaultConfig);
         } catch (Throwable t) {
             module.logError("circle_to_search_pipeline_failed", t);
             return null;
@@ -232,33 +241,15 @@ final class SystemUiHooks {
         private final Method getAssistInfo;
         private final Method getVoiceInteractorComponentName;
         private final Method startAssistInternal;
-        /**
-         * Android 17 / ColorOS 17 added a leading {@link Context} parameter:
-         * {@code startAssistInternal(Context, Bundle, ComponentName, boolean)}. Older builds have
-         * {@code startAssistInternal(Bundle, ComponentName, boolean)}.
-         */
-        private final boolean startAssistInternalTakesContext;
-        /** {@code AssistManager.mContext}; only needed for the Context-taking variant. */
+        /** {@code AssistManager.mContext}; the Android 17 overload takes it as an argument. */
         private final Field contextField;
 
         private AssistPipeline(Method getAssistInfo, Method getVoiceInteractorComponentName,
-                Method startAssistInternal, boolean startAssistInternalTakesContext,
-                Field contextField) {
+                Method startAssistInternal, Field contextField) {
             this.getAssistInfo = getAssistInfo;
             this.getVoiceInteractorComponentName = getVoiceInteractorComponentName;
             this.startAssistInternal = startAssistInternal;
-            this.startAssistInternalTakesContext = startAssistInternalTakesContext;
             this.contextField = contextField;
-        }
-
-        private void invokeStartAssistInternal(Object assistManager, Bundle args,
-                Object component, boolean isService) throws Throwable {
-            if (startAssistInternalTakesContext) {
-                Object context = contextField != null ? contextField.get(assistManager) : null;
-                startAssistInternal.invoke(assistManager, context, args, component, isService);
-            } else {
-                startAssistInternal.invoke(assistManager, args, component, isService);
-            }
         }
 
         /** @return the component the request was sent to, or {@code null} when none is configured */
@@ -269,13 +260,25 @@ final class SystemUiHooks {
                 module.logWarn("assist_dispatch_skipped reason=no_assistant_configured");
                 return null;
             }
-            boolean isService =
-                    assistInfo.equals(getVoiceInteractorComponentName.invoke(assistManager));
+            if (!(assistInfo instanceof ComponentName)) {
+                module.logWarn("assist_dispatch_skipped reason=unexpected_assistant_type type="
+                        + assistInfo.getClass().getName());
+                return null;
+            }
+            ComponentName assistComponent = (ComponentName) assistInfo;
+            Context context = contextOf(assistManager);
+            ensureVoiceInteractionService(module, context);
+            Object voiceInteractor = getVoiceInteractorComponentName.invoke(assistManager);
+            // ColorOS 17 does not always sync voice_interaction_service with the selected
+            // assistant, so the service the component declares is probed as well.
+            boolean isService = assistInfo.equals(voiceInteractor)
+                    || isDeclaredVoiceInteractionService(context, assistComponent);
             module.logInfo("assist_dispatch component=" + assistInfo
                     + " isService=" + isService
+                    + " voiceInteractor=" + voiceInteractor
                     + " invocationType=" + args.getInt(EXTRA_INVOCATION_TYPE, 0));
-            invokeStartAssistInternal(assistManager, args, assistInfo, isService);
-            return assistInfo;
+            invokeStartAssistInternal(module, assistManager, args, assistComponent, isService);
+            return assistComponent;
         }
 
         /**
@@ -289,8 +292,38 @@ final class SystemUiHooks {
                     + " isService=" + isService
                     + " invocationType=" + args.getInt(EXTRA_INVOCATION_TYPE, 0)
                     + " pinned=true");
-            invokeStartAssistInternal(assistManager, args, component, isService);
+            invokeStartAssistInternal(module, assistManager, args, component, isService);
             return component;
+        }
+
+        /**
+         * Android 17 added the display {@code Context} in front of the assist arguments; the
+         * argument list is matched at resolve time so both firmware generations work.
+         */
+        private void invokeStartAssistInternal(OplusAssistantModule module, Object assistManager,
+                Bundle args, Object component, boolean isService) throws Throwable {
+            if (startAssistInternal.getParameterCount() == 4) {
+                Context context = contextOf(assistManager);
+                if (context == null) {
+                    module.logWarn("assist_dispatch_skipped reason=no_context");
+                    return;
+                }
+                startAssistInternal.invoke(assistManager, context, args, component, isService);
+                return;
+            }
+            startAssistInternal.invoke(assistManager, args, component, isService);
+        }
+
+        private Context contextOf(Object assistManager) {
+            if (contextField == null) {
+                return null;
+            }
+            try {
+                Object value = contextField.get(assistManager);
+                return value instanceof Context ? (Context) value : null;
+            } catch (Throwable t) {
+                return null;
+            }
         }
     }
 
@@ -298,30 +331,125 @@ final class SystemUiHooks {
             OplusAssistantModule module, ClassLoader classLoader) {
         try {
             Class<?> assistManager = Class.forName(ASSIST_MANAGER, true, classLoader);
-            Method startAssistInternal;
-            boolean takesContext;
-            Field contextField = null;
-            try {
-                // Android 17 / ColorOS 17
-                startAssistInternal = assistManager.getMethod("startAssistInternal",
-                        Context.class, Bundle.class, ComponentName.class, boolean.class);
-                takesContext = true;
-                contextField = assistManager.getField("mContext");
-            } catch (NoSuchMethodException e) {
-                // Android 16 / ColorOS 16 and older
+            // ColorOS 17 (Android 17) hands the display context to the dispatch method; ColorOS 16
+            // carried the assist bundle alone.
+            Method startAssistInternal = Refl.method(assistManager, "startAssistInternal",
+                    Context.class, Bundle.class, ComponentName.class, boolean.class);
+            if (startAssistInternal == null) {
                 startAssistInternal = assistManager.getMethod("startAssistInternal",
                         Bundle.class, ComponentName.class, boolean.class);
-                takesContext = false;
             }
-            module.logInfo("assist_pipeline_resolved startAssistInternal takesContext=" + takesContext);
             return new AssistPipeline(
                     assistManager.getMethod("getAssistInfo"),
                     assistManager.getMethod("getVoiceInteractorComponentName"),
-                    startAssistInternal, takesContext, contextField);
+                    startAssistInternal,
+                    findContextField(assistManager));
         } catch (Throwable t) {
             module.logError("assist_pipeline_resolve_failed", t);
             return null;
         }
+    }
+
+    /** {@code AssistManager.mContext}, falling back to the first {@code Context} field. */
+    private static Field findContextField(Class<?> assistManagerClass) {
+        for (Class<?> type = assistManagerClass; type != null && type != Object.class;
+                type = type.getSuperclass()) {
+            try {
+                Field named = type.getDeclaredField("mContext");
+                if (named.getType() == Context.class) {
+                    named.setAccessible(true);
+                    return named;
+                }
+            } catch (Throwable ignored) {
+                // Keep walking the hierarchy.
+            }
+        }
+        for (Class<?> type = assistManagerClass; type != null && type != Object.class;
+                type = type.getSuperclass()) {
+            for (Field field : type.getDeclaredFields()) {
+                if (field.getType() == Context.class) {
+                    field.setAccessible(true);
+                    return field;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * ColorOS 17 can leave {@code voice_interaction_service} empty even though the default assistant
+     * is set, which makes a service assistant look like a plain activity. Only a missing entry is
+     * filled, and only from a service the assistant's own package declares.
+     */
+    private static void ensureVoiceInteractionService(OplusAssistantModule module, Context context) {
+        if (context == null || !AssistConfig.isEnabled(HookPrefs.get())) {
+            return;
+        }
+        try {
+            ContentResolver resolver = context.getContentResolver();
+            String current = Settings.Secure.getString(resolver, SETTING_VOICE_INTERACTION_SERVICE);
+            if (current != null && !current.isEmpty()) {
+                return;
+            }
+            String assistantSetting = Settings.Secure.getString(resolver, SETTING_ASSISTANT);
+            ComponentName assistant = assistantSetting == null
+                    ? null : ComponentName.unflattenFromString(assistantSetting);
+            if (assistant == null) {
+                return;
+            }
+            ComponentName voiceService = resolveVoiceInteractionComponent(
+                    context, assistant.getPackageName());
+            if (voiceService == null) {
+                return;
+            }
+            String flattened = voiceService.flattenToString();
+            boolean written = false;
+            try {
+                Method putStringForUser = Settings.Secure.class.getMethod(
+                        "putStringForUser", ContentResolver.class, String.class,
+                        String.class, int.class);
+                Object result = putStringForUser.invoke(null, resolver,
+                        SETTING_VOICE_INTERACTION_SERVICE, flattened, -2);
+                written = !Boolean.FALSE.equals(result);
+            } catch (Throwable ignored) {
+                written = Settings.Secure.putString(
+                        resolver, SETTING_VOICE_INTERACTION_SERVICE, flattened);
+            }
+            if (written) {
+                module.logInfo("voice_interaction_service_repaired component=" + flattened);
+            } else {
+                module.logWarn("voice_interaction_service_repair_failed component=" + flattened);
+            }
+        } catch (Throwable t) {
+            module.logWarn("voice_interaction_service_repair_failed " + t);
+        }
+    }
+
+    /** @return true when the component is a VoiceInteractionService declared by its package */
+    private static boolean isDeclaredVoiceInteractionService(
+            Context context, ComponentName component) {
+        if (context == null || component == null) {
+            return false;
+        }
+        try {
+            Intent probe = new Intent(ACTION_VOICE_INTERACTION_SERVICE)
+                    .setPackage(component.getPackageName());
+            List<ResolveInfo> matches = context.getPackageManager().queryIntentServices(probe, 0);
+            if (matches == null) {
+                return false;
+            }
+            for (ResolveInfo match : matches) {
+                ServiceInfo serviceInfo = match.serviceInfo;
+                if (serviceInfo != null
+                        && component.getPackageName().equals(serviceInfo.packageName)
+                        && component.getClassName().equals(serviceInfo.name)) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+            // Package information unavailable: keep the original answer.
+        }
+        return false;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -338,17 +466,19 @@ final class SystemUiHooks {
         }
         try {
             Class<?> assistManager = Class.forName(ASSIST_MANAGER, true, classLoader);
-            Method startAssist;
-            try {
+            // D8 renames the dispatch entry to {@code startAssist$1} when it keeps the interface
+            // method alive next to it, which is what the ColorOS 17 build ships.
+            Method startAssist = Refl.method(assistManager, "startAssist$1", Bundle.class);
+            if (startAssist != null) {
+                startAssist.setAccessible(true);
+            } else {
                 startAssist = assistManager.getMethod("startAssist", Bundle.class);
-            } catch (NoSuchMethodException e) {
-                // Android 17 / ColorOS 17: Kotlin conversion renamed it to startAssist$1
-                startAssist = assistManager.getMethod("startAssist$1", Bundle.class);
-                module.logInfo("assist_dispatch_hook using renamed method startAssist$1");
             }
             Field overrideInvocationTypes = assistManager.getField("mAssistOverrideInvocationTypes");
             Field activityManager = assistManager.getField("mActivityManager");
             Method isExpRegion = Refl.staticMethod(classLoader, FEATURE_OPTION, "isExpRegion");
+            final boolean firewallOpen = Boolean.TRUE.equals(
+                    Refl.staticBooleanField(classLoader, OP_UTILS, "sIsClosedSuperFirewall"));
             if (isExpRegion == null) {
                 module.logWarn("region_gate_unresolved target=" + FEATURE_OPTION
                         + ".isExpRegion -> treating the region gate as closed");
@@ -366,9 +496,10 @@ final class SystemUiHooks {
                             module.logInfo("assist_skip reason=module_disabled");
                             return result;
                         }
-                        if (isExpRegionEnabled(isExpRegion)) {
-                            // Export-region behaviour is already active: the OEM path dispatched.
-                            module.logInfo("assist_skip reason=exp_region_active");
+                        if (isExpRegionEnabled(isExpRegion) || firewallOpen) {
+                            // The OEM branch already dispatched: export region, or the super
+                            // firewall reports the device as open.
+                            module.logInfo("assist_skip reason=region_open");
                             return result;
                         }
                         if (isLockTaskMode(activityManager.get(manager))) {
@@ -401,7 +532,8 @@ final class SystemUiHooks {
                         pipeline.dispatch(module, manager, bundle != null ? bundle : new Bundle());
                         return result;
                     });
-            module.logInfo("hook_installed target=" + ASSIST_MANAGER + ".startAssist");
+            module.logInfo("hook_installed target=" + ASSIST_MANAGER + "."
+                    + startAssist.getName());
         } catch (Throwable t) {
             module.logError("hook_failed target=" + ASSIST_MANAGER + ".startAssist", t);
         }
@@ -711,7 +843,151 @@ final class SystemUiHooks {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // 5. NavBarUtils.isSideGestureBarHide
+    // 5. OplusNavigationHandle press bootstrap
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * Repairs the handle's press handling when the gesture bar was already hidden at boot: the
+     * handler then never sees a laid-out bar, {@code inGestureXRange} stays unset and the long press
+     * does nothing until the bar is toggled once. The horizontal range is rebuilt from the same OEM
+     * dimension the bar draws with and only written while the bar has no layout.
+     */
+    private static void installHandlePressAvailability(
+            OplusAssistantModule module, ClassLoader classLoader) {
+        try {
+            Class<?> handle = Class.forName(SIDE_GESTURE_HANDLE, true, classLoader);
+            Method handleValidTouchEvent = handle.getMethod(
+                    "handleValidTouchEvent", MotionEvent.class);
+            module.hook(handleValidTouchEvent)
+                    .setId("handle_press_range_bootstrap")
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object handleObject = chain.getThisObject();
+                        MotionEvent event = (MotionEvent) chain.getArg(0);
+                        repairHiddenHandleGestureRange(module, handleObject, event, true);
+                        Object result = chain.proceed();
+                        repairHiddenHandleGestureRange(module, handleObject, event, false);
+                        return result;
+                    });
+            module.logInfo("hook_installed target=" + SIDE_GESTURE_HANDLE
+                    + ".handleValidTouchEvent");
+
+            Method shouldHandlePress = handle.getMethod("shouldHandlePress");
+            module.hook(shouldHandlePress)
+                    .setId("handle_press_availability")
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (Boolean.TRUE.equals(result)
+                                || !handleOwnedByModule()
+                                || !isHandleInGestureRange(chain.getThisObject())) {
+                            return result;
+                        }
+                        Object handleObject = chain.getThisObject();
+                        if (isKeyguardShowing(handleObject)) {
+                            return result;
+                        }
+                        Context context = handleObject instanceof View
+                                ? ((View) handleObject).getContext() : null;
+                        if (context != null && isHandleWakeSwitchOff(module, context)) {
+                            return result;
+                        }
+                        module.logInfo("handle_press_availability_repaired");
+                        return Boolean.TRUE;
+                    });
+            module.logInfo("hook_installed target=" + SIDE_GESTURE_HANDLE + ".shouldHandlePress");
+        } catch (Throwable t) {
+            module.logWarn("hook_skipped target=" + SIDE_GESTURE_HANDLE
+                    + ".shouldHandlePress " + t);
+        }
+    }
+
+    /**
+     * Writes the bar's horizontal range into {@code inGestureXRange} before the first press is
+     * judged, but only while the bar has no layout (the boot-with-hidden-bar case); once it is laid
+     * out, the OEM logic owns the field.
+     */
+    private static void repairHiddenHandleGestureRange(
+            OplusAssistantModule module, Object handleObject, MotionEvent event, boolean before) {
+        if (!(handleObject instanceof View)
+                || event == null
+                || event.getActionMasked() != MotionEvent.ACTION_DOWN
+                || !handleOwnedByModule()) {
+            return;
+        }
+        View handle = (View) handleObject;
+        if (handle.getWidth() > 0) {
+            return;
+        }
+        int barWidth = gestureBarWidthForCurrentRotation(handle);
+        if (barWidth <= 0) {
+            return;
+        }
+        int screenWidth = handle.getRootView() == null ? 0 : handle.getRootView().getWidth();
+        if (screenWidth <= 0) {
+            screenWidth = handle.getResources().getDisplayMetrics().widthPixels;
+        }
+        if (screenWidth <= 0) {
+            return;
+        }
+        int left = Math.max(0, (screenWidth - barWidth) / 2);
+        int right = left + barWidth;
+        boolean inRange = event.getX() >= left && event.getX() <= right;
+        Field rangeField = Refl.field(handle.getClass(), "inGestureXRange");
+        if (rangeField == null) {
+            return;
+        }
+        try {
+            rangeField.setBoolean(handle, inRange);
+            if (before && inRange) {
+                module.logInfo("handle_press_range_bootstrapped left=" + left
+                        + " right=" + right);
+            }
+        } catch (Throwable t) {
+            module.logWarn("handle_press_range_bootstrap_failed " + t);
+        }
+    }
+
+    /** Bar width for the current rotation, falling back to the portrait dimension. */
+    private static int gestureBarWidthForCurrentRotation(View view) {
+        try {
+            int rotation = view.getDisplay() == null ? 0 : view.getDisplay().getRotation();
+            String name = rotation == 1 || rotation == 3
+                    ? "navigation_gesture_view_landscape_width"
+                    : "navigation_gesture_view_width";
+            int width = oplusDimension(view, name);
+            return width > 0 ? width : gestureBarWidth(view);
+        } catch (Throwable ignored) {
+            return gestureBarWidth(view);
+        }
+    }
+
+    private static boolean isHandleInGestureRange(Object handle) {
+        Field field = handle == null ? null : Refl.field(handle.getClass(), "inGestureXRange");
+        if (field == null) {
+            return false;
+        }
+        try {
+            return field.getBoolean(handle);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isKeyguardShowing(Object handle) {
+        Field field = handle == null ? null : Refl.field(handle.getClass(), "isKeyguardShowing");
+        if (field == null) {
+            return false;
+        }
+        try {
+            return field.getBoolean(handle);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 6. NavBarUtils.isSideGestureBarHide
     // ---------------------------------------------------------------------------------------------
 
     /**
@@ -786,7 +1062,7 @@ final class SystemUiHooks {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // 6. The gesture bar area belongs to the navigation-bar window
+    // 7. The gesture bar area belongs to the navigation-bar window
     // ---------------------------------------------------------------------------------------------
 
     /**

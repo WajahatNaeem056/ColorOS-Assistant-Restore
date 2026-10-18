@@ -2,13 +2,16 @@ package io.github.wajahatnaeem056.oplusassistant;
 
 import io.github.libxposed.api.XposedInterface;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 
 /**
  * Launcher side of the corner-swipe gesture.
  *
- * <p>The launcher decides whether the bottom-corner swipe may summon the assistant in
- * {@code QuickStepContract.isAssistantGestureDisabled(long systemUiStateFlags)}. On this build the
- * mask is {@code 3083}, i.e. the gesture is disabled while any of these are set:</p>
+ * <p>The launcher decides whether the bottom-corner swipe may summon the assistant with a
+ * {@code (long systemUiStateFlags) -> boolean} rule: ColorOS 16 ships it as
+ * {@code QuickStepContract.isAssistantGestureDisabled}, ColorOS 17 as the launcher's own copy
+ * {@code ab.n.c}. The mask is {@code 3083} on both, i.e. the gesture is disabled while any of
+ * these are set:</p>
  *
  * <pre>
  * 1     SYSUI_STATE_SCREEN_PINNING             screen pinning
@@ -29,6 +32,15 @@ import java.lang.reflect.Method;
 final class LauncherHooks {
     private static final String QUICK_STEP_CONTRACT =
             "com.android.systemui.shared.system.QuickStepContract";
+
+    /**
+     * ColorOS 17 (Android 17) stopped handing the shared contract class to the launcher: the
+     * launcher now carries its own copy of the same state-flag rule, obfuscated to
+     * {@code ab.n.c(long)} on this build. The lookup verifies the shape of the candidate so a
+     * future rename cannot silently hook an unrelated method.
+     */
+    private static final String LAUNCHER_GESTURE_CONTRACT = "ab.n";
+    private static final String LAUNCHER_GESTURE_METHOD = "c";
 
     private static final long STATE_SCREEN_PINNING = 1L;
     private static final long STATE_NAV_BAR_HIDDEN = 2L;
@@ -54,9 +66,12 @@ final class LauncherHooks {
 
     static void install(OplusAssistantModule module, ClassLoader classLoader) {
         try {
-            Class<?> contract = Class.forName(QUICK_STEP_CONTRACT, true, classLoader);
-            Method isAssistantGestureDisabled =
-                    contract.getMethod("isAssistantGestureDisabled", long.class);
+            Method isAssistantGestureDisabled = resolveGestureDisabled(module, classLoader);
+            if (isAssistantGestureDisabled == null) {
+                module.logError("hook_skipped target=" + QUICK_STEP_CONTRACT
+                        + ".isAssistantGestureDisabled reason=not_found");
+                return;
+            }
 
             module.hook(isAssistantGestureDisabled)
                     .setId("assistant_gesture_disabled")
@@ -67,6 +82,12 @@ final class LauncherHooks {
                         }
                         Object result = chain.proceed();
                         if (!Boolean.TRUE.equals(result)) {
+                            return result;
+                        }
+                        if (!AssistConfig.PAGE_FLAGS_SUPPORTED) {
+                            // ColorOS 17 no longer produces the page-level flags; keep the OEM
+                            // answer and say so once.
+                            logPageFlagsUnsupported(module);
                             return result;
                         }
                         if (!AssistConfig.unblockPageFlags(HookPrefs.get())) {
@@ -96,11 +117,59 @@ final class LauncherHooks {
                                 + " flags=0x" + Long.toHexString(flags));
                         return Boolean.FALSE;
                     });
-            module.logInfo("hook_installed target=" + QUICK_STEP_CONTRACT
-                    + ".isAssistantGestureDisabled");
+            module.logInfo("hook_installed target="
+                    + isAssistantGestureDisabled.getDeclaringClass().getName() + "."
+                    + isAssistantGestureDisabled.getName());
         } catch (Throwable t) {
             module.logError("hook_failed target=" + QUICK_STEP_CONTRACT
                     + ".isAssistantGestureDisabled", t);
+        }
+    }
+
+    private static volatile boolean loggedPageFlagsUnsupported;
+
+    /**
+     * ColorOS 17 stopped producing the two page-level flags, so this hook has nothing to unblock
+     * there; the single log line explains why it stays silent on such builds.
+     */
+    private static void logPageFlagsUnsupported(OplusAssistantModule module) {
+        if (!loggedPageFlagsUnsupported) {
+            loggedPageFlagsUnsupported = true;
+            module.logInfo("assist_gesture_unblock_skipped reason=unsupported_on_this_build");
+        }
+    }
+
+    /**
+     * @return the state-flag rule this build offers the launcher, or {@code null} when neither
+     *         location resolves
+     */
+    private static Method resolveGestureDisabled(OplusAssistantModule module,
+            ClassLoader classLoader) {
+        Class<?> shared = Refl.load(classLoader, QUICK_STEP_CONTRACT);
+        if (shared != null) {
+            try {
+                return shared.getMethod("isAssistantGestureDisabled", long.class);
+            } catch (Throwable ignored) {
+                // ColorOS 17 dropped it from the shared class; fall through to the launcher copy.
+            }
+        }
+        Class<?> launcherCopy = Refl.load(classLoader, LAUNCHER_GESTURE_CONTRACT);
+        if (launcherCopy == null) {
+            return null;
+        }
+        try {
+            Method candidate =
+                    launcherCopy.getDeclaredMethod(LAUNCHER_GESTURE_METHOD, long.class);
+            if (!Modifier.isStatic(candidate.getModifiers())
+                    || candidate.getReturnType() != boolean.class) {
+                module.logWarn("assist_gesture_contract_unexpected candidate="
+                        + launcherCopy.getName() + "." + candidate.getName());
+                return null;
+            }
+            candidate.setAccessible(true);
+            return candidate;
+        } catch (Throwable t) {
+            return null;
         }
     }
 }

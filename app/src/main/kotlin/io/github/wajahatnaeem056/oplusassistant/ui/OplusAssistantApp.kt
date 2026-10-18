@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDropDown
@@ -95,6 +96,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -249,6 +251,7 @@ fun OplusAssistantApp() {
     var handleWhenBarHidden by remember { mutableStateOf(store.handleWhenBarHidden()) }
     var keepAlive by remember { mutableStateOf(store.keepAlive()) }
     var keepAliveApps by remember { mutableStateOf(store.keepAliveApps()) }
+    var doublePressWallet by remember { mutableStateOf(store.doublePressWallet()) }
     // Not a preference: the switch reports the launcher alias' component state, which is what the
     // package manager keeps, so it also stays correct after a reinstall.
     var hideLauncherIcon by remember { mutableStateOf(LauncherIcon.isHidden(context)) }
@@ -281,6 +284,7 @@ fun OplusAssistantApp() {
                 handleWhenBarHidden = store.handleWhenBarHidden()
                 keepAlive = store.keepAlive()
                 keepAliveApps = store.keepAliveApps()
+                doublePressWallet = store.doublePressWallet()
             }
         }
         App.addServiceStateListener(listener, true)
@@ -427,6 +431,11 @@ fun OplusAssistantApp() {
                 handleWhenBarHidden = it
                 store.setHandleWhenBarHidden(it)
             },
+            doublePressWallet = doublePressWallet,
+            onDoublePressWalletChange = {
+                doublePressWallet = it
+                store.setDoublePressWallet(it)
+            },
             hideLauncherIcon = hideLauncherIcon,
             onHideLauncherIconChange = {
                 hideLauncherIcon = it
@@ -564,29 +573,34 @@ private fun ListRow(
     iconBitmap: ImageBitmap? = null,
     trailing: (@Composable () -> Unit)? = null,
     onClick: (() -> Unit)? = null,
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 72.dp)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (enabled && onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        val contentAlpha = if (enabled) 1f else 0.38f
         when {
             iconBitmap != null -> Image(
                 bitmap = iconBitmap,
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier
+                    .size(40.dp)
+                    .alpha(contentAlpha),
             )
 
             icon != null -> Box(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .alpha(contentAlpha),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -600,7 +614,7 @@ private fun ListRow(
             else -> Spacer(Modifier.width(40.dp))
         }
 
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f).alpha(contentAlpha)) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
@@ -657,8 +671,8 @@ private fun Chevron() {
 }
 
 @Composable
-private fun Toggle(checked: Boolean, onChange: (Boolean) -> Unit) {
-    Switch(checked = checked, onCheckedChange = onChange)
+private fun Toggle(checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = true) {
+    Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -918,9 +932,10 @@ private fun TargetScreen(
                     subtitle = "Current system default: ${snapshot.defaultLabel}",
                     icon = Icons.Rounded.SettingsVoice,
                     trailing = {
-                        Toggle(choice is TargetChoice.FollowDefault) {
-                            toggleChoice(it, TargetChoice.FollowDefault, onSelectChoice)
-                        }
+                        Toggle(
+                            checked = choice is TargetChoice.FollowDefault,
+                            onChange = { toggleChoice(it, TargetChoice.FollowDefault, onSelectChoice) },
+                        )
                     },
                 )
                 RowDivider()
@@ -929,9 +944,10 @@ private fun TargetScreen(
                     subtitle = "Uses the system CTS service, ignores the default assistant setting",
                     icon = Icons.Rounded.Search,
                     trailing = {
-                        Toggle(choice is TargetChoice.CircleToSearch) {
-                            toggleChoice(it, TargetChoice.CircleToSearch, onSelectChoice)
-                        }
+                        Toggle(
+                            checked = choice is TargetChoice.CircleToSearch,
+                            onChange = { toggleChoice(it, TargetChoice.CircleToSearch, onSelectChoice) },
+                        )
                     },
                 )
                 if (oemOptionVisible) {
@@ -941,9 +957,10 @@ private fun TargetScreen(
                         subtitle = "No takeover: long-pressing the gesture bar stays with ColorOS",
                         icon = Icons.Rounded.Tune,
                         trailing = {
-                            Toggle(choice is TargetChoice.Oem) {
-                                toggleChoice(it, TargetChoice.Oem, onSelectChoice)
-                            }
+                            Toggle(
+                                checked = choice is TargetChoice.Oem,
+                                onChange = { toggleChoice(it, TargetChoice.Oem, onSelectChoice) },
+                            )
                         },
                     )
                 }
@@ -959,15 +976,16 @@ private fun TargetScreen(
                         icon = Icons.Rounded.SettingsVoice,
                         trailing = {
                             Toggle(
-                                choice is TargetChoice.App &&
-                                    choice.packageName == BREENO_PACKAGE
-                            ) {
-                                toggleChoice(
-                                    it,
-                                    TargetChoice.App(BREENO_PACKAGE),
-                                    onSelectChoice,
-                                )
-                            }
+                                checked = choice is TargetChoice.App &&
+                                    choice.packageName == BREENO_PACKAGE,
+                                onChange = {
+                                    toggleChoice(
+                                        it,
+                                        TargetChoice.App(BREENO_PACKAGE),
+                                        onSelectChoice,
+                                    )
+                                },
+                            )
                         },
                     )
                     RowDivider()
@@ -1231,6 +1249,8 @@ private fun AdvancedScreen(
     onFakeGoogleBuildChange: (Boolean) -> Unit,
     handleWhenBarHidden: Boolean,
     onHandleWhenBarHiddenChange: (Boolean) -> Unit,
+    doublePressWallet: Boolean,
+    onDoublePressWalletChange: (Boolean) -> Unit,
     hideLauncherIcon: Boolean,
     onHideLauncherIconChange: (Boolean) -> Unit,
     selectedTab: Int,
@@ -1253,9 +1273,20 @@ private fun AdvancedScreen(
                 RowDivider()
                 ListRow(
                     title = "Remove page-level gesture restriction",
-                    subtitle = "Lets the bottom-corner swipe work on pages like Settings too",
+                    subtitle = if (AssistConfig.PAGE_FLAGS_SUPPORTED) {
+                        "Lets the bottom-corner swipe work on pages like Settings too"
+                    } else {
+                        "No effect on Android 17+: the system no longer blocks the swipe per page"
+                    },
                     icon = Icons.Rounded.LockOpen,
-                    trailing = { Toggle(unblockPageFlags, onUnblockPageFlagsChange) },
+                    enabled = AssistConfig.PAGE_FLAGS_SUPPORTED,
+                    trailing = {
+                        Toggle(
+                            checked = unblockPageFlags,
+                            onChange = onUnblockPageFlagsChange,
+                            enabled = AssistConfig.PAGE_FLAGS_SUPPORTED,
+                        )
+                    },
                 )
                 RowDivider()
                 ListRow(
@@ -1270,6 +1301,13 @@ private fun AdvancedScreen(
                     subtitle = "With the gesture bar hidden, a long-press at its original spot still summons the assistant",
                     icon = Icons.Rounded.TouchApp,
                     trailing = { Toggle(handleWhenBarHidden, onHandleWhenBarHiddenChange) },
+                )
+                RowDivider()
+                ListRow(
+                    title = "Double-press power for Google Wallet",
+                    subtitle = "Double-pressing power opens the system quick-access wallet (Google Wallet) instead of the ColorOS wallet; keep the system \"double-press power for quick service\" setting on",
+                    icon = Icons.Rounded.AccountBalanceWallet,
+                    trailing = { Toggle(doublePressWallet, onDoublePressWalletChange) },
                 )
                 RowDivider()
                 ListRow(

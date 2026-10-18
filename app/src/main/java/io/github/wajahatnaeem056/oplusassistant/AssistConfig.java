@@ -45,12 +45,23 @@ public final class AssistConfig {
     public static final String KEY_UNBLOCK_PAGE_FLAGS = "unblock_page_flags";
     public static final String KEY_SPOOF_GOOGLE_BUILD = "spoof_google_build";
     public static final String KEY_HANDLE_WHEN_BAR_HIDDEN = "handle_when_bar_hidden";
+    /** Double press opens the system quick-access wallet (Google Wallet) instead of the OEM one. */
+    public static final String KEY_DOUBLE_PRESS_WALLET = "double_press_wallet";
 
     public static final boolean DEFAULT_ENABLED = true;
     public static final boolean DEFAULT_SKIP_OCR_PRELOAD = true;
     public static final boolean DEFAULT_UNBLOCK_PAGE_FLAGS = true;
     public static final boolean DEFAULT_SPOOF_GOOGLE_BUILD = true;
     public static final boolean DEFAULT_HANDLE_WHEN_BAR_HIDDEN = true;
+    public static final boolean DEFAULT_DOUBLE_PRESS_WALLET = false;
+
+    /**
+     * Whether the launcher still receives the page-level gesture block. ColorOS 17 (API 37)
+     * stopped setting {@code overview_disabled} / {@code search_disabled} for pages, so there is
+     * nothing to unblock: the option is greyed out in the UI and the launcher hook keeps the OEM
+     * answer.
+     */
+    public static final boolean PAGE_FLAGS_SUPPORTED = android.os.Build.VERSION.SDK_INT < 37;
 
     /* Keep-alive: stops ColorOS from force-stopping chosen apps in the background. */
     public static final String KEY_KEEP_ALIVE = "keep_alive";
@@ -138,5 +149,15 @@ public final class AssistConfig {
             }
         }
         return packages;
+    }
+
+    /**
+     * Whether a power-key double press opens the system quick-access wallet screen (which serves
+     * the default wallet role, i.e. Google Wallet on a GMS device) instead of the OEM wallet quick
+     * launch. Off by default so the OEM behaviour stays untouched unless it is requested.
+     */
+    public static boolean doublePressWallet(SharedPreferences prefs) {
+        return prefs != null
+                && prefs.getBoolean(KEY_DOUBLE_PRESS_WALLET, DEFAULT_DOUBLE_PRESS_WALLET);
     }
 }

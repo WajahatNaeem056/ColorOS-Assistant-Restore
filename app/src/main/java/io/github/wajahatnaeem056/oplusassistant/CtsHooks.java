@@ -33,6 +33,9 @@ final class CtsHooks {
     private static final String CTS_SERVICE =
             "com.android.server.contextualsearch.ContextualSearchManagerService";
     private static final String SYSTEM_SERVER = "com.android.server.SystemServer";
+    /** Android 17 added a config argument to the contextual-search entry point. */
+    private static final String CTS_CONFIG =
+            "android.app.contextualsearch.ContextualSearchConfig";
 
     static final String PKG_GOOGLE = "com.google.android.googlequicksearchbox";
     private static final String PKG_SYSTEMUI = "com.android.systemui";
@@ -47,6 +50,7 @@ final class CtsHooks {
         int packageNameResId = resolvePackageNameResId(module, classLoader);
         installDeviceHasConfigString(module, classLoader, packageNameResId);
         installContextualSearchPackageName(module, classLoader);
+        installContextualSearchAvailability(module, classLoader);
         installPermissionBypass(module, classLoader);
         installStartContextualSearch(module, classLoader);
     }
@@ -112,6 +116,47 @@ final class CtsHooks {
         }
     }
 
+    /**
+     * SystemUI caches the availability answer, so a China build keeps treating Circle to Search as
+     * missing even after the package name is in place. The override is limited to the trusted
+     * callers (system / SystemUI), like the permission bypass below.
+     */
+    private static void installContextualSearchAvailability(
+            OplusAssistantModule module, ClassLoader classLoader) {
+        try {
+            Class<?> service = Class.forName(CTS_SERVICE, true, classLoader);
+            Method method = method(service, "isContextualSearchAvailable");
+            if (method == null) {
+                // The handler lives in the service's binder subclass, like startContextualSearch.
+                for (Class<?> inner : service.getDeclaredClasses()) {
+                    method = method(inner, "isContextualSearchAvailable");
+                    if (method != null) {
+                        break;
+                    }
+                }
+            }
+            if (method == null) {
+                module.logInfo("hook_skipped target=" + CTS_SERVICE
+                        + ".isContextualSearchAvailable reason=not_found");
+                return;
+            }
+            module.hook(method)
+                    .setId("cts_is_available")
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept(chain -> {
+                        if (isTrustedCaller(module)) {
+                            return Boolean.TRUE;
+                        }
+                        return chain.proceed();
+                    });
+            module.logInfo("hook_installed target=" + CTS_SERVICE
+                    + ".isContextualSearchAvailable");
+        } catch (Throwable t) {
+            module.logError("hook_failed target=" + CTS_SERVICE
+                    + ".isContextualSearchAvailable", t);
+        }
+    }
+
     private static void installPermissionBypass(
             OplusAssistantModule module, ClassLoader classLoader) {
         try {
@@ -171,16 +216,11 @@ final class CtsHooks {
                 continue;
             }
             Class<?>[] parameterTypes = candidate.getParameterTypes();
-            // Android 16 and older: startContextualSearch(int entrypoint)
-            // Android 17 / ColorOS 17: startContextualSearch(int entrypoint, ContextualSearchConfig)
-            // The entrypoint is always the first argument, so both shapes are hooked the same way.
-            // startContextualSearchForApp(ContextualSearchConfig) has a different name and is
-            // intentionally not matched here.
-            boolean legacyShape = parameterTypes.length == 1 && parameterTypes[0] == int.class;
-            boolean configShape = parameterTypes.length == 2 && parameterTypes[0] == int.class
-                    && "android.app.contextualsearch.ContextualSearchConfig"
-                            .equals(parameterTypes[1].getName());
-            if (!legacyShape && !configShape) {
+            boolean legacySignature = parameterTypes.length == 1 && parameterTypes[0] == int.class;
+            boolean configSignature = parameterTypes.length == 2
+                    && parameterTypes[0] == int.class
+                    && CTS_CONFIG.equals(parameterTypes[1].getName());
+            if (!legacySignature && !configSignature) {
                 continue;
             }
             candidate.setAccessible(true);

@@ -120,6 +120,8 @@ The APK is written to `app/build/outputs/apk/debug/app-debug.apk`. Add `--offlin
 
 ## Version
 
+**1.0.1** - ColorOS 17 support (Android 17 reflection and dispatch changes), Google app identity spoof now covers every process of the package, optional power-key double press for Google Wallet, and the gesture handle bootstraps its press range when the bar was hidden at boot.
+
 **1.0.0** - all three entries restored, with per-entry wake targets, Circle to Search, page-level gesture unblocking, and Google app process retention.
 
 ## Disclaimer

@@ -27,8 +27,8 @@ android {
         applicationId = "io.github.wajahatnaeem056.oplusassistant"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.0.8"
+        versionCode = 9
+        versionName = "1.0.1"
     }
 
     buildFeatures {

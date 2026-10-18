@@ -1381,9 +1381,10 @@ private fun KeepAliveScreen(
                             subtitle = app.packageName,
                             iconBitmap = app.icon,
                             trailing = {
-                                Toggle(app.packageName in selectedApps) {
-                                    onToggleApp(app.packageName, it)
-                                }
+                                Toggle(
+                                    checked = app.packageName in selectedApps,
+                                    onChange = { onToggleApp(app.packageName, it) },
+                                )
                             },
                         )
                     }

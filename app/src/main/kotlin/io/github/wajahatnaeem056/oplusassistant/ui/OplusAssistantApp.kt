@@ -28,6 +28,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -468,6 +475,10 @@ fun OplusAssistantApp() {
 /* Shared building blocks                                                                         */
 /* --------------------------------------------------------------------------------------------- */
 
+/** Height of the floating dock itself, without the gap below it or the system inset. */
+private val DockHeight = 68.dp
+private val DockBottomGap = 12.dp
+
 @Composable
 private fun AppScreen(
     title: String,
@@ -477,20 +488,44 @@ private fun AppScreen(
     bottomBar: (@Composable () -> Unit)? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        topBar = { AppTopBar(title, onBack, actions) },
-        bottomBar = { bottomBar?.invoke() },
-        snackbarHost = { if (snackbarHost != null) SnackbarHost(snackbarHost) },
-        containerColor = MaterialTheme.colorScheme.background,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-    ) { insets ->
-        content(
-            Modifier
-                .padding(insets)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-        )
+    // The dock floats over the content, so the scrolled column needs room for it at the end,
+    // otherwise the last card stays hidden behind the dock.
+    val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val dockSpace: Dp = if (bottomBar != null) DockHeight + DockBottomGap + navInset + 16.dp else 0.dp
+
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            topBar = { AppTopBar(title, onBack, actions) },
+            containerColor = MaterialTheme.colorScheme.background,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        ) { insets ->
+            content(
+                Modifier
+                    .padding(insets)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    // After verticalScroll, so it is padding inside the scrolled content.
+                    .padding(bottom = dockSpace)
+            )
+        }
+
+        if (snackbarHost != null) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = dockSpace)
+            ) { SnackbarHost(snackbarHost) }
+        }
+
+        if (bottomBar != null) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, bottom = DockBottomGap)
+            ) { bottomBar() }
+        }
     }
 }
 
@@ -533,19 +568,75 @@ private fun AppTopBar(
 
 @Composable
 private fun AppBottomBar(selected: Int, onSelect: (Int) -> Unit) {
-    NavigationBar {
-        listOf(
-            Triple("Entries", Icons.Rounded.TouchApp, 0),
-            Triple("Advanced", Icons.Rounded.Settings, 1),
-            Triple("Keep alive", Icons.Rounded.Notifications, 2),
-        ).forEach { (label, icon, index) ->
-            NavigationBarItem(
-                selected = selected == index,
-                onClick = { onSelect(index) },
-                icon = { Icon(icon, contentDescription = label) },
-                label = { Text(label) },
-            )
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(percent = 50)
+    Surface(
+        shape = shape,
+        // Translucent so the cards scrolling underneath still show through. This is a plain alpha
+        // fill, not a real backdrop blur (that needs RenderEffect or a library such as Haze).
+        color = colors.surfaceContainer.copy(alpha = 0.86f),
+        tonalElevation = 0.dp,
+        shadowElevation = 8.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(DockHeight)
+            .border(1.dp, colors.outlineVariant.copy(alpha = 0.5f), shape),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            listOf(
+                Triple("Entries", Icons.Rounded.TouchApp, 0),
+                Triple("Advanced", Icons.Rounded.Settings, 1),
+                Triple("Keep alive", Icons.Rounded.Notifications, 2),
+            ).forEach { (label, icon, index) ->
+                DockItem(
+                    label = label,
+                    icon = icon,
+                    selected = selected == index,
+                    onClick = { onSelect(index) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun DockItem(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val tint by animateColorAsState(
+        if (selected) colors.primary else colors.onSurfaceVariant, label = "dockTint",
+    )
+    val pill by animateColorAsState(
+        if (selected) colors.primary.copy(alpha = 0.16f) else Color.Transparent, label = "dockPill",
+    )
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(percent = 50))
+            .background(pill)
+            .clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(24.dp))
+        Text(
+            text = label,
+            color = tint,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+        )
     }
 }
 

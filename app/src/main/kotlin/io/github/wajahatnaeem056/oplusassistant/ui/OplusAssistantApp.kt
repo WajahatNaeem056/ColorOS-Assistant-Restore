@@ -33,6 +33,20 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow as GlassTextOverflow
+import io.github.wajahatnaeem056.oplusassistant.ui.glass.FloatingBottomBar
+import io.github.wajahatnaeem056.oplusassistant.ui.glass.FloatingBottomBarItem
+import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
+import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
+import top.yukonga.miuix.kmp.theme.ColorSchemeMode
+import top.yukonga.miuix.kmp.theme.LocalContentColor as MiuixContentColor
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.ThemeController
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
@@ -397,7 +411,16 @@ fun OplusAssistantApp() {
 
     val tabRoutes = DOCK_TABS.map { it.third }
 
+    val pageColor = MaterialTheme.colorScheme.background
+    val backdrop = rememberLayerBackdrop {
+        drawRect(pageColor)
+        drawContent()
+    }
+
     Box(Modifier.fillMaxSize()) {
+    // Sampling layer: pages only. The dock must stay OUTSIDE it or the backdrop samples itself
+    // and the app crashes on launch.
+    Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
     AnimatedContent(
         targetState = route,
         transitionSpec = {
@@ -499,6 +522,7 @@ fun OplusAssistantApp() {
         )
     }
     }
+    }
 
     AnimatedVisibility(
         visible = route in tabRoutes,
@@ -506,16 +530,11 @@ fun OplusAssistantApp() {
         exit = slideOutVertically(tween(160)) { it } + fadeOut(tween(160)),
         modifier = Modifier.align(Alignment.BottomCenter),
     ) {
-        Box(
-            Modifier
-                .navigationBarsPadding()
-                .padding(start = 16.dp, end = 16.dp, bottom = DockBottomGap)
-        ) {
-            FloatingDock(
-                selected = tabRoutes.indexOf(route).coerceAtLeast(0),
-                onSelect = selectTab,
-            )
-        }
+        GlassDock(
+            selected = tabRoutes.indexOf(route).coerceAtLeast(0),
+            onSelect = selectTab,
+            backdrop = backdrop,
+        )
     }
     }
 }
@@ -526,7 +545,12 @@ fun OplusAssistantApp() {
 
 /** Height of the floating dock itself, without the gap below it or the system inset. */
 private val DockHeight = 64.dp
-private val DockBottomGap = 12.dp
+
+/** KernelSU spacing: 8dp above the gesture inset, or 28dp when there is no inset. */
+@Composable
+private fun glassDockBottomPadding(): Dp =
+    WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        .let { if (it != 0.dp) 8.dp + it else 28.dp }
 
 @Composable
 private fun AppScreen(
@@ -539,8 +563,7 @@ private fun AppScreen(
 ) {
     // The dock lives once at the root and floats over every tab, so a tab only has to leave room
     // for it at the end of its scrolled content.
-    val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val dockSpace: Dp = if (reserveDock) DockHeight + DockBottomGap + navInset + 16.dp else 0.dp
+    val dockSpace: Dp = if (reserveDock) DockHeight + glassDockBottomPadding() + 16.dp else 0.dp
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -613,104 +636,47 @@ private val DOCK_TABS = listOf(
 )
 
 @Composable
-private fun FloatingDock(selected: Int, onSelect: (Int) -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val haptic = LocalHapticFeedback.current
-    Surface(
-        shape = CircleShape,
-        // Plain translucent fill: a real backdrop blur needs RenderEffect or a library like Haze.
-        color = colors.surfaceContainer.copy(alpha = 0.80f),
-        shadowElevation = 10.dp,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(DockHeight)
-            .border(1.dp, colors.outlineVariant.copy(alpha = 0.6f), CircleShape),
-    ) {
-        BoxWithConstraints(
-            Modifier
-                .fillMaxSize()
-                .padding(5.dp)
-        ) {
-            val itemWidth = maxWidth / DOCK_TABS.size
-            // One indicator for the whole dock, so it can slide from tab to tab with a spring.
-            val indicatorX by animateDpAsState(
-                targetValue = itemWidth * selected,
-                animationSpec = spring(dampingRatio = 0.7f, stiffness = 380f),
-                label = "dockIndicator",
-            )
-            Box(
-                Modifier
-                    .offset(x = indicatorX)
-                    .width(itemWidth)
-                    .fillMaxHeight()
-                    .clip(CircleShape)
-                    .background(colors.primary.copy(alpha = 0.22f))
-            )
-            Row(Modifier.fillMaxSize()) {
-                DOCK_TABS.forEachIndexed { index, (label, icon, _) ->
-                    DockItem(
-                        label = label,
-                        icon = icon,
-                        selected = selected == index,
-                        onClick = {
-                            if (selected != index) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onSelect(index)
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
+private fun GlassDock(
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    backdrop: top.yukonga.miuix.kmp.blur.Backdrop,
+) {
+    // The dock is a Miuix component, so it gets its own small Miuix theme; the rest of the app
+    // stays Material 3. Colour mode follows the system dark/light setting.
+    val dark = isSystemInDarkTheme()
+    val controller = remember(dark) {
+        ThemeController(colorSchemeMode = if (dark) ColorSchemeMode.Dark else ColorSchemeMode.Light)
+    }
+    MiuixTheme(controller = controller) {
+        FloatingBottomBar(
+            modifier = Modifier.padding(start = 28.dp, end = 28.dp, bottom = glassDockBottomPadding()),
+            selectedIndex = selected,
+            onSelected = onSelect,
+            backdrop = backdrop,
+            tabsCount = DOCK_TABS.size,
+            isBlurEnabled = isRuntimeShaderSupported(),
+        ) { activateTab ->
+            val tint = MiuixContentColor.current
+            DOCK_TABS.forEachIndexed { index, (label, icon, _) ->
+                FloatingBottomBarItem(
+                    selected = selected == index,
+                    onClick = { activateTab(index) },
+                    modifier = Modifier.defaultMinSize(minWidth = 76.dp),
+                ) {
+                    // Material Icon/Text read Material's own content colour, so pass Miuix's.
+                    Icon(icon, contentDescription = label, tint = tint)
+                    Text(
+                        text = label,
+                        color = tint,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = GlassTextOverflow.Visible,
                     )
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun DockItem(
-    label: String,
-    icon: ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = MaterialTheme.colorScheme
-    val tint by animateColorAsState(
-        if (selected) colors.primary else colors.onSurfaceVariant,
-        animationSpec = tween(200),
-        label = "dockTint",
-    )
-    val scale by animateFloatAsState(
-        targetValue = if (selected) 1.14f else 1f,
-        animationSpec = spring(dampingRatio = 0.45f, stiffness = 420f),
-        label = "dockScale",
-    )
-    Column(
-        modifier = modifier
-            .fillMaxHeight()
-            .clip(CircleShape)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            icon,
-            contentDescription = label,
-            tint = tint,
-            modifier = Modifier
-                .size(24.dp)
-                .graphicsLayer { scaleX = scale; scaleY = scale },
-        )
-        Text(
-            text = label,
-            color = tint,
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 1,
-        )
     }
 }
 

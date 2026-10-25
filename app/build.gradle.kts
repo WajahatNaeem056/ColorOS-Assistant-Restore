@@ -27,7 +27,7 @@ android {
         applicationId = "io.github.wajahatnaeem056.oplusassistant"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
+        versionCode = 10
         versionName = "1.0.1"
     }
 
@@ -95,6 +95,10 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+
+    // KernelSU-style liquid glass dock (Miuix blur/backdrop + theme for the dock only).
+    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.4")
+    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.4")
 
     // Framework bridge: the settings UI writes the configuration the hooks read.
     implementation("io.github.libxposed:service:102.0.0")

@@ -28,6 +28,31 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -370,7 +395,18 @@ fun OplusAssistantApp() {
         }
     }
 
-    when (route) {
+    val tabRoutes = DOCK_TABS.map { it.third }
+
+    Box(Modifier.fillMaxSize()) {
+    AnimatedContent(
+        targetState = route,
+        transitionSpec = {
+            (fadeIn(tween(240, delayMillis = 60)) + scaleIn(tween(240, delayMillis = 60), initialScale = 0.98f)) togetherWith
+                fadeOut(tween(110))
+        },
+        label = "route",
+    ) { current ->
+    when (current) {
         ROUTE_TARGET -> {
             BackHandler { route = ROUTE_ENTRIES }
             TargetScreen(
@@ -462,11 +498,35 @@ fun OplusAssistantApp() {
             onSelectTab = selectTab,
         )
     }
+    }
+
+    AnimatedVisibility(
+        visible = route in tabRoutes,
+        enter = slideInVertically(spring(dampingRatio = 0.8f, stiffness = 400f)) { it } + fadeIn(),
+        exit = slideOutVertically(tween(160)) { it } + fadeOut(tween(160)),
+        modifier = Modifier.align(Alignment.BottomCenter),
+    ) {
+        Box(
+            Modifier
+                .navigationBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, bottom = DockBottomGap)
+        ) {
+            FloatingDock(
+                selected = tabRoutes.indexOf(route).coerceAtLeast(0),
+                onSelect = selectTab,
+            )
+        }
+    }
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */
 /* Shared building blocks                                                                         */
 /* --------------------------------------------------------------------------------------------- */
+
+/** Height of the floating dock itself, without the gap below it or the system inset. */
+private val DockHeight = 64.dp
+private val DockBottomGap = 12.dp
 
 @Composable
 private fun AppScreen(
@@ -474,23 +534,38 @@ private fun AppScreen(
     snackbarHost: SnackbarHostState? = null,
     onBack: (() -> Unit)? = null,
     actions: (@Composable () -> Unit)? = null,
-    bottomBar: (@Composable () -> Unit)? = null,
+    reserveDock: Boolean = false,
     content: @Composable (Modifier) -> Unit,
 ) {
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        topBar = { AppTopBar(title, onBack, actions) },
-        bottomBar = { bottomBar?.invoke() },
-        snackbarHost = { if (snackbarHost != null) SnackbarHost(snackbarHost) },
-        containerColor = MaterialTheme.colorScheme.background,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-    ) { insets ->
-        content(
-            Modifier
-                .padding(insets)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-        )
+    // The dock lives once at the root and floats over every tab, so a tab only has to leave room
+    // for it at the end of its scrolled content.
+    val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val dockSpace: Dp = if (reserveDock) DockHeight + DockBottomGap + navInset + 16.dp else 0.dp
+
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            topBar = { AppTopBar(title, onBack, actions) },
+            containerColor = MaterialTheme.colorScheme.background,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        ) { insets ->
+            content(
+                Modifier
+                    .padding(insets)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    // After verticalScroll, so it is padding inside the scrolled content.
+                    .padding(bottom = dockSpace)
+            )
+        }
+
+        if (snackbarHost != null) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = dockSpace)
+            ) { SnackbarHost(snackbarHost) }
+        }
     }
 }
 
@@ -531,21 +606,111 @@ private fun AppTopBar(
     }
 }
 
+private val DOCK_TABS = listOf(
+    Triple("Entries", Icons.Rounded.TouchApp, ROUTE_ENTRIES),
+    Triple("Advanced", Icons.Rounded.Settings, ROUTE_ADVANCED),
+    Triple("Keep alive", Icons.Rounded.Notifications, ROUTE_KEEP_ALIVE),
+)
+
 @Composable
-private fun AppBottomBar(selected: Int, onSelect: (Int) -> Unit) {
-    NavigationBar {
-        listOf(
-            Triple("Entries", Icons.Rounded.TouchApp, 0),
-            Triple("Advanced", Icons.Rounded.Settings, 1),
-            Triple("Keep alive", Icons.Rounded.Notifications, 2),
-        ).forEach { (label, icon, index) ->
-            NavigationBarItem(
-                selected = selected == index,
-                onClick = { onSelect(index) },
-                icon = { Icon(icon, contentDescription = label) },
-                label = { Text(label) },
+private fun FloatingDock(selected: Int, onSelect: (Int) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val haptic = LocalHapticFeedback.current
+    Surface(
+        shape = CircleShape,
+        // Plain translucent fill: a real backdrop blur needs RenderEffect or a library like Haze.
+        color = colors.surfaceContainer.copy(alpha = 0.80f),
+        shadowElevation = 10.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(DockHeight)
+            .border(1.dp, colors.outlineVariant.copy(alpha = 0.6f), CircleShape),
+    ) {
+        BoxWithConstraints(
+            Modifier
+                .fillMaxSize()
+                .padding(5.dp)
+        ) {
+            val itemWidth = maxWidth / DOCK_TABS.size
+            // One indicator for the whole dock, so it can slide from tab to tab with a spring.
+            val indicatorX by animateDpAsState(
+                targetValue = itemWidth * selected,
+                animationSpec = spring(dampingRatio = 0.7f, stiffness = 380f),
+                label = "dockIndicator",
             )
+            Box(
+                Modifier
+                    .offset(x = indicatorX)
+                    .width(itemWidth)
+                    .fillMaxHeight()
+                    .clip(CircleShape)
+                    .background(colors.primary.copy(alpha = 0.22f))
+            )
+            Row(Modifier.fillMaxSize()) {
+                DOCK_TABS.forEachIndexed { index, (label, icon, _) ->
+                    DockItem(
+                        label = label,
+                        icon = icon,
+                        selected = selected == index,
+                        onClick = {
+                            if (selected != index) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onSelect(index)
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun DockItem(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val tint by animateColorAsState(
+        if (selected) colors.primary else colors.onSurfaceVariant,
+        animationSpec = tween(200),
+        label = "dockTint",
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1.14f else 1f,
+        animationSpec = spring(dampingRatio = 0.45f, stiffness = 420f),
+        label = "dockScale",
+    )
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = tint,
+            modifier = Modifier
+                .size(24.dp)
+                .graphicsLayer { scaleX = scale; scaleY = scale },
+        )
+        Text(
+            text = label,
+            color = tint,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+        )
     }
 }
 
@@ -695,7 +860,7 @@ private fun EntriesScreen(
     AppScreen(
         title = "Oplus-Assistant",
         snackbarHost = snackbarHost,
-        bottomBar = { AppBottomBar(selectedTab, onSelectTab) },
+        reserveDock = true,
     ) { modifier ->
         Column(modifier.padding(horizontal = 16.dp)) {
             Spacer(Modifier.height(16.dp))
@@ -1258,7 +1423,7 @@ private fun AdvancedScreen(
 ) {
     AppScreen(
         title = "Advanced",
-        bottomBar = { AppBottomBar(selectedTab, onSelectTab) },
+        reserveDock = true,
     ) { modifier ->
         Column(modifier.padding(horizontal = 16.dp)) {
             Spacer(Modifier.height(16.dp))
@@ -1347,7 +1512,7 @@ private fun KeepAliveScreen(
 
     AppScreen(
         title = "Keep alive",
-        bottomBar = { AppBottomBar(selectedTab, onSelectTab) },
+        reserveDock = true,
     ) { modifier ->
         Column(modifier.padding(horizontal = 16.dp)) {
             Spacer(Modifier.height(16.dp))
